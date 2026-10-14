@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <OutputPath>bin\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AssemblyName>SsMod</AssemblyName>
+    <RootNamespace>SsMod</RootNamespace>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <Optimize>true</Optimize>
+    <DebugType>none</DebugType>
+    <DefineConstants>$(DefineConstants);CROSSPLATFORM</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Lib.Harmony" Version="2.3.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Content.Client">
+      <HintPath>Resources/Content.Client.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Content.Shared">
+      <HintPath>Resources/Content.Shared.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Robust.Client">
+      <HintPath>Resources/Robust.Client.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Robust.Shared">
+      <HintPath>Resources/Robust.Shared.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Robust.Shared.Maths">
+      <HintPath>Resources/Robust.Shared.Maths.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>

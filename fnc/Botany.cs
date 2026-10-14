@@ -1,0 +1,191 @@
+using System.Globalization;
+using System.Reflection;
+using System.Text;
+using Content.Client.Examine;
+using Content.Shared.Botany.Components;
+using Content.Shared.Botany.Traits.Components;
+using Content.Shared.Chemistry.Reagent;
+using HarmonyLib;
+using Robust.Client.UserInterface;
+using Robust.Client.UserInterface.Controls;
+using Robust.Shared.GameObjects;
+using Robust.Shared.IoC;
+using Robust.Shared.Localization;
+using Robust.Shared.Maths;
+using Robust.Shared.Prototypes;
+using Robust.Shared.Utility;
+
+namespace SsMod.Fnc;
+
+public static class BotanyRead
+{
+    public const string LabelName = "SsModBotanyInfo";
+
+    public static string? BuildText(EntityUid target, string existingText)
+    {
+        var ent = IoCManager.Resolve<IEntityManager>();
+
+        ent.TryGetComponent(target, out PlantComponent? plant);
+        ent.TryGetComponent(target, out PlantHolderComponent? holder);
+        ent.TryGetComponent(target, out PlantDataComponent? data);
+        ent.TryGetComponent(target, out PlantChemicalsComponent? chemicals);
+
+        if (plant == null && holder == null)
+            return null;
+
+        var lines = new List<string>();
+
+        if (data != null)
+            lines.Add($"Вид: {Loc.GetString(data.Name)}");
+
+        if (plant != null)
+        {
+            lines.Add($"Потенция: {N(plant.Potency)} • Урожай: {plant.Yield}");
+            lines.Add($"Живучесть: {N(plant.Endurance)} • Созревание: {N(plant.Maturation)} • Производство: {N(plant.Production)}");
+            lines.Add($"Срок жизни: {N(plant.Lifespan)} • Стадий роста: {plant.GrowthStages}");
+        }
+
+        if (holder != null)
+        {
+            lines.Add($"Возраст: {holder.Age} • Здоровье: {N(holder.Health)}");
+            lines.Add($"Мутации: {N(holder.MutationLevel)}/{N(holder.MaxMutationLevel)} (шанс ×{N(holder.MutationMod)}) • Мод. урожая ×{holder.YieldMod}");
+
+            var flags = new List<string>();
+            if (holder.Dead)
+                flags.Add("[color=#d9534f]мёртв[/color]");
+            if (holder.ReadyForHarvest)
+                flags.Add("[color=#5bc0de]готов к сбору[/color]");
+            if (holder.ImproperHeat)
+                flags.Add("[color=#d9534f]плохая температура[/color]");
+            if (holder.ImproperPressure)
+                flags.Add("[color=#d9534f]плохое давление[/color]");
+            if (holder.MissingGas)
+                flags.Add("[color=#d9534f]нет газов[/color]");
+            if (flags.Count > 0)
+                lines.Add(string.Join(" • ", flags));
+        }
+
+        if (plant != null || holder != null)
+        {
+            var traits = new List<string>();
+            foreach (var trait in ent.GetComponents<PlantTraitsComponent>(target))
+            {
+                if (trait.TraitState is not { } state)
+                    continue;
+
+                var text = Loc.GetString(state);
+                if (traits.Contains(text) || existingText.Contains(text))
+                    continue;
+
+                traits.Add(text);
+            }
+
+            if (traits.Count > 0)
+                lines.Add($"Черты: {string.Join(", ", traits)}");
+        }
+
+        if (chemicals != null && chemicals.Chemicals.Count > 0)
+        {
+            var proto = IoCManager.Resolve<IPrototypeManager>();
+            var chems = new List<string>();
+
+            foreach (var (reagentId, quantity) in chemicals.Chemicals)
+            {
+                var name = proto.TryIndex<ReagentPrototype>(reagentId.Id, out var reagent)
+                    ? reagent.LocalizedName
+                    : reagentId.Id;
+                var min = (float)quantity.Min;
+                var max = (float)quantity.Max;
+                chems.Add($"{name} ({N(min)}–{N(max)})");
+            }
+
+            lines.Add($"Химикаты: {string.Join(", ", chems)}");
+        }
+
+        if (lines.Count == 0)
+            return null;
+
+        var sb = new StringBuilder();
+        sb.Append("[b][color=#8fd38f]Ботаника[/color][/b]");
+        foreach (var line in lines)
+            sb.Append('\n').Append(line);
+
+        return sb.ToString();
+    }
+
+    private static string N(float value)
+    {
+        return value.ToString("0.##", CultureInfo.InvariantCulture);
+    }
+}
+
+[HarmonyPatch(typeof(ExamineSystem), nameof(ExamineSystem.UpdateTooltipInfo))]
+public static class BotanyExaminePatch
+{
+    public static void Postfix(ExamineSystem __instance, EntityUid target, FormattedMessage message)
+    {
+        try
+        {
+            var field = typeof(ExamineSystem).GetField("_examineTooltipOpen", BindingFlags.Instance | BindingFlags.NonPublic);
+            if (field?.GetValue(__instance) is not Popup popup)
+                return;
+
+            if (popup.ChildCount == 0 || popup.GetChild(0).ChildCount == 0)
+                return;
+
+            if (popup.GetChild(0).GetChild(0) is not BoxContainer vBox)
+                return;
+
+            Control? old = null;
+            Control? buttons = null;
+            foreach (var child in vBox.Children)
+            {
+                if (child.Name == BotanyRead.LabelName)
+                    old = child;
+                else if (child.Name == "ExamineButtonsHBox")
+                    buttons = child;
+            }
+
+            if (old != null)
+                vBox.RemoveChild(old);
+
+            var text = BotanyRead.BuildText(target, PlainText(message));
+            if (text == null)
+                return;
+
+            var label = new RichTextLabel
+            {
+                Name = BotanyRead.LabelName,
+                Margin = new Thickness(4, 4, 0, 4),
+            };
+            label.SetMessage(FormattedMessage.FromMarkupPermissive(text));
+            vBox.AddChild(label);
+
+            if (buttons != null)
+            {
+                vBox.RemoveChild(buttons);
+                vBox.AddChild(buttons);
+            }
+        }
+        catch (Exception e)
+        {
+            Console.Error.WriteLine($"[SsMod] botany examine: {e}");
+        }
+    }
+
+    private static string PlainText(FormattedMessage message)
+    {
+        var sb = new StringBuilder();
+        foreach (var node in message.Nodes)
+        {
+            if (node.Name != null)
+                continue;
+
+            var text = node.Value.StringValue;
+            if (!string.IsNullOrWhiteSpace(text))
+                sb.Append(text);
+        }
+
+        return sb.ToString();
+    }
+}
