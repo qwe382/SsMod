@@ -15,6 +15,8 @@ public sealed class SsModWindow : DefaultWindow
     private static readonly (string Title, Func<Control> Build)[] Categories =
     {
         ("Фрейм 1", BuildFrame1),
+        ("ESP", Esp.BuildTab),
+        ("Конфиг", Config.BuildTab),
         ("Дебаг", BuildDebug),
         ("Твики", BuildTweaks),
     };
@@ -95,6 +97,9 @@ public sealed class SsModWindow : DefaultWindow
         melBot.OnToggled += args => MelBot.Toggle(args.Pressed);
         box.AddChild(melBot);
 
+        // Крио-бот: сам бьёт помеченных Make Enemy и чередует заходы в капсулу.
+        box.AddChild(CryoBot.BuildControls());
+
         return box;
     }
 
@@ -111,6 +116,10 @@ public sealed class SsModWindow : DefaultWindow
         var cameraLock = CameraLock.BuildCheckBox();
         cameraLock.OnToggled += args => CameraLock.Toggle(args.Pressed);
         box.AddChild(cameraLock);
+
+        var noEffects = NoEffects.BuildCheckBox();
+        noEffects.OnToggled += args => NoEffects.Toggle(args.Pressed);
+        box.AddChild(noEffects);
 
         return box;
     }

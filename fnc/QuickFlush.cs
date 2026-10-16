@@ -25,6 +25,8 @@ public static class QuickFlush
 {
     private static bool _enabled;
 
+    internal static bool Enabled => _enabled;
+
     public static CheckBox BuildCheckBox()
     {
         return new CheckBox

@@ -3,7 +3,6 @@ using Content.Client.Gameplay;
 using Content.Shared.CombatMode;
 using Content.Shared.Mobs;
 using Content.Shared.Mobs.Components;
-using Content.Shared.Weapons.Melee;
 using Robust.Client.GameObjects;
 using Robust.Client.Graphics;
 using Robust.Client.Input;
@@ -26,6 +25,9 @@ namespace SsMod.Fnc;
 //
 // Радиус захвата — SnapTiles тайлов от курсора, в мировых координатах
 // (1 тайл = 1 единица мира).
+//
+// Атаку мелбот форсирует только пока цель в пределах дальности оружия
+// (MeleeWeaponComponent.Range): вне дальности он не бьёт и не машет впустую.
 //
 // Позицию курсора берём через args.Viewport.LocalToWorld, а рис через
 // args.Viewport.WorldToLocal — это согласованная пара одного вьюпорта в одном
@@ -54,6 +56,25 @@ public sealed class MelBotOverlay : Overlay
     internal static MapCoordinates CurrentTargetMapCoordinates { get; private set; }
     internal static Vector2 CurrentTargetScreenPosition { get; private set; }
     internal static WindowId CurrentWindow { get; private set; }
+
+    // Цель в пределах дальности оружия. Пока false — мелбот не форсирует атаку
+    // (ни клик, ни подмену курсора, ни сброс Attacking).
+    internal static bool CurrentTargetInReach { get; private set; } = true;
+
+    // Публикация цели наружу: атакой управляет тот оверлей, который сейчас
+    // активен — мелбот (по курсору) или крио-бот (по метке Make Enemy).
+    internal static void SetTarget(EntityUid? target, MapCoordinates mapCoordinates,
+        Vector2 screenPosition, WindowId window, bool inReach)
+    {
+        CurrentTarget = target;
+        CurrentTargetMapCoordinates = mapCoordinates;
+        CurrentTargetScreenPosition = screenPosition;
+        CurrentWindow = window;
+        CurrentTargetInReach = inReach;
+    }
+
+    // Пока активен крио-бот, цель публикует он: мелбот не должен её затирать.
+    internal static bool YieldToCryoBot => CryoBotOverlay.Active;
 
     [Dependency] private readonly IEntityManager _ent = default!;
     [Dependency] private readonly IPlayerManager _player = default!;
@@ -107,7 +128,12 @@ public sealed class MelBotOverlay : Overlay
 
     protected override void Draw(in OverlayDrawArgs args)
     {
+        // Атакой сейчас управляет крио-бот — не трогаем опубликованную им цель.
+        if (YieldToCryoBot)
+            return;
+
         CurrentTarget = null;
+        CurrentTargetInReach = true;
         try
         {
             if (args.Viewport.Eye is not { } eye)
@@ -247,12 +273,17 @@ public sealed class MelBotOverlay : Overlay
             var targetWorld = _transform.GetWorldPosition(target);
             CurrentTarget = target;
 
+            // Дальность текущего оружия: пока цель вне досягаемости, мелбот не
+            // форсирует атаку — иначе он бесконечно машет по пустоте.
+            var selfWorld = _transform.GetWorldPosition(self);
+            CurrentTargetInReach = AttackReach.InReach(_ent, self, target);
+
             // Рисуем в ScreenSpace, поэтому мировые точки переводим в экранные
             // WorldToLocal того же вьюпорта — он в тех же координатах, что и LocalToWorld,
             // из которого получена mouseWorld. Плюс GlobalPixelPosition вьюпорта.
             var handle = args.ScreenHandle;
             var origin = args.ViewportBounds.TopLeft;
-            var fromScreen = args.Viewport.WorldToLocal(_transform.GetWorldPosition(self)) + origin;
+            var fromScreen = args.Viewport.WorldToLocal(selfWorld) + origin;
             var targetScreen = args.Viewport.WorldToLocal(targetWorld) + origin;
             CurrentTargetMapCoordinates = _transform.GetMapCoordinates(target);
             CurrentTargetScreenPosition = targetScreen;
@@ -378,6 +409,7 @@ public static class MelBot
         else
         {
             overlays.RemoveOverlay<MelBotOverlay>();
+            MelBotOverlay.SetTarget(null, default, default, default, true);
         }
     }
 }
@@ -394,7 +426,8 @@ internal static class MelBotClickPatch
                 .NetworkBindMap.KeyFunctionID(Robust.Shared.Input.EngineKeyFunctions.Use) &&
             input.InputFunctionId != IoCManager.Resolve<Robust.Client.Input.IInputManager>()
                 .NetworkBindMap.KeyFunctionID(Robust.Shared.Input.EngineKeyFunctions.UseSecondary) ||
-            MelBotOverlay.CurrentTarget is null)
+            MelBotOverlay.CurrentTarget is null ||
+            !MelBotOverlay.CurrentTargetInReach)
         {
             return;
         }
@@ -431,7 +464,7 @@ internal static class MelBotAttackCursorPatch
 
     private static bool Prefix(ref ScreenCoordinates __result)
     {
-        if (MelBotOverlay.CurrentTarget is null)
+        if (MelBotOverlay.CurrentTarget is null || !MelBotOverlay.CurrentTargetInReach)
             return true;
 
         var input = IoCManager.Resolve<IEntityManager>().System<Robust.Client.GameObjects.InputSystem>();
@@ -453,13 +486,16 @@ internal static class MelBotAttackCursorPatch
 // удара MeleeWeaponComponent.Attacking остаётся true, и новые удары не идут до
 // отпускания. Пока мод держит цель и зажата кнопка, гасим флаг перед апдейтом —
 // получается непрерывная атака по цели.
+//
+// Но только пока цель в пределах дальности оружия: иначе мелбот махал бы
+// бесконечно по пустоте, даже когда враг ушёл.
 [HarmonyLib.HarmonyPatch(typeof(Content.Client.Weapons.Melee.MeleeWeaponSystem),
     nameof(Content.Client.Weapons.Melee.MeleeWeaponSystem.Update))]
 internal static class MelBotMeleePatch
 {
     private static void Prefix(Content.Client.Weapons.Melee.MeleeWeaponSystem __instance)
     {
-        if (MelBotOverlay.CurrentTarget is null)
+        if (MelBotOverlay.CurrentTarget is null || !MelBotOverlay.CurrentTargetInReach)
             return;
 
         if (!IoCManager.Resolve<IGameTiming>().IsFirstTimePredicted)
