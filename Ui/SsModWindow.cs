@@ -2,6 +2,7 @@ using Robust.Client.UserInterface;
 using Robust.Client.UserInterface.Controls;
 using Robust.Client.UserInterface.CustomControls;
 using SsMod.Debug;
+using SsMod.Fnc;
 
 namespace SsMod.Ui;
 
@@ -15,6 +16,7 @@ public sealed class SsModWindow : DefaultWindow
     {
         ("Фрейм 1", BuildFrame1),
         ("Дебаг", BuildDebug),
+        ("Твики", BuildTweaks),
     };
 
     private readonly BoxContainer _frameHost;
@@ -87,13 +89,28 @@ public sealed class SsModWindow : DefaultWindow
     private static Control BuildFrame1()
     {
         var box = new BoxContainer { Orientation = BoxContainer.LayoutOrientation.Vertical };
-        box.AddChild(new Button { Text = "Mel-Bot" });
+
+        // Переключатель Mel-Bot: линия до персонажа под курсором.
+        var melBot = MelBot.BuildCheckBox();
+        melBot.OnToggled += args => MelBot.Toggle(args.Pressed);
+        box.AddChild(melBot);
 
         return box;
     }
 
     // Фрейм "Дебаг": переключатель "Block debug" живёт здесь,
     // фабрика чекбокса — в debug/WindowHooks.cs.
+    private static Control BuildTweaks()
+    {
+        var box = new BoxContainer { Orientation = BoxContainer.LayoutOrientation.Vertical };
+
+        var quickFlush = QuickFlush.BuildCheckBox();
+        quickFlush.OnToggled += args => QuickFlush.Toggle(args.Pressed);
+        box.AddChild(quickFlush);
+
+        return box;
+    }
+
     private static Control BuildDebug()
     {
         var box = new BoxContainer { Orientation = BoxContainer.LayoutOrientation.Vertical };
