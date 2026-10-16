@@ -108,6 +108,10 @@ public sealed class SsModWindow : DefaultWindow
         quickFlush.OnToggled += args => QuickFlush.Toggle(args.Pressed);
         box.AddChild(quickFlush);
 
+        var cameraLock = CameraLock.BuildCheckBox();
+        cameraLock.OnToggled += args => CameraLock.Toggle(args.Pressed);
+        box.AddChild(cameraLock);
+
         return box;
     }
 

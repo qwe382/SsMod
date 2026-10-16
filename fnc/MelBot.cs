@@ -1,7 +1,9 @@
 using System.Numerics;
 using Content.Client.Gameplay;
+using Content.Shared.CombatMode;
 using Content.Shared.Mobs;
 using Content.Shared.Mobs.Components;
+using Content.Shared.Weapons.Melee;
 using Robust.Client.GameObjects;
 using Robust.Client.Graphics;
 using Robust.Client.Input;
@@ -88,9 +90,10 @@ public sealed class MelBotOverlay : Overlay
     // словаря, и если в него заходит новый игрок, итерация падает на середине.
     // Поэтому сначала копируем uid'ы, потом уже читаем позиции.
     private readonly List<EntityUid> _livingEntities = new();
-    private TimeSpan _nextLeftClick;
-    private TimeSpan _nextRightClick;
-    private static readonly TimeSpan ClickRepeatInterval = TimeSpan.FromSeconds(0.2);
+
+    // Захваченная цель: пока зажата кнопка атаки, держим именно её, даже если
+    // курсор ушёл далеко. Сбрасывается при отпускании кнопки или потере цели.
+    private EntityUid? _lockTarget;
 
     // Последняя напечатанная диагностика, чтобы не спамить каждый кадр.
     private string _lastDiag = "";
@@ -100,49 +103,6 @@ public sealed class MelBotOverlay : Overlay
     {
         IoCManager.InjectDependencies(this);
         _transform = _ent.System<SharedTransformSystem>();
-    }
-
-    protected override void FrameUpdate(FrameEventArgs args)
-    {
-        if (CurrentTarget is null || _player.LocalSession is not { } session)
-            return;
-
-        var now = _timing.RealTime;
-        var input = _ent.System<Robust.Client.GameObjects.InputSystem>();
-        if (input.CmdStates.GetState(EngineKeyFunctions.Use) == BoundKeyState.Down && now >= _nextLeftClick)
-        {
-            SendClick(input, session, EngineKeyFunctions.Use);
-            _nextLeftClick = now + ClickRepeatInterval;
-        }
-
-        if (input.CmdStates.GetState(EngineKeyFunctions.UseSecondary) == BoundKeyState.Down && now >= _nextRightClick)
-        {
-            SendClick(input, session, EngineKeyFunctions.UseSecondary);
-            _nextRightClick = now + ClickRepeatInterval;
-        }
-    }
-
-    private void SendClick(Robust.Client.GameObjects.InputSystem input, ICommonSession session,
-        BoundKeyFunction function)
-    {
-        var coords = _transform.ToCoordinates(CurrentTargetMapCoordinates);
-        var clicked = IoCManager.Resolve<Robust.Client.State.IStateManager>().CurrentState is Content.Client.Gameplay.GameplayStateBase screen
-            ? screen.GetClickedEntity(CurrentTargetMapCoordinates) ?? EntityUid.Invalid
-            : EntityUid.Invalid;
-        var functionId = IoCManager.Resolve<IInputManager>().NetworkBindMap.KeyFunctionID(function);
-        var timing = _timing;
-
-        // Повторяем короткий обычный mouse-up/mouse-down pulse, сохраняя
-        // реальное состояние удерживаемой кнопки в локальном CmdStates.
-        var up = new Robust.Shared.Input.ClientFullInputCmdMessage(timing.CurTick,
-            timing.TickFraction, functionId, coords,
-            new ScreenCoordinates(CurrentTargetScreenPosition, CurrentWindow), BoundKeyState.Up, clicked);
-        input.HandleInputCommand(session, function, up, replay: true);
-
-        var down = new Robust.Shared.Input.ClientFullInputCmdMessage(timing.CurTick,
-            timing.TickFraction, functionId, coords,
-            new ScreenCoordinates(CurrentTargetScreenPosition, CurrentWindow), BoundKeyState.Down, clicked);
-        input.HandleInputCommand(session, function, down, replay: true);
     }
 
     protected override void Draw(in OverlayDrawArgs args)
@@ -155,6 +115,14 @@ public sealed class MelBotOverlay : Overlay
 
             if (_player.LocalEntity is not { Valid: true } self)
                 return;
+
+            // Mel-Bot включается только в боевом режиме: вне него ничего не
+            // ищем, не рисуем и не захватываем.
+            if (!_ent.TryGetComponent(self, out CombatModeComponent? combat) || !combat.IsInCombatMode)
+            {
+                _lockTarget = null;
+                return;
+            }
 
             // Координаты курсора приводим в мир через LocalToWorld самого вьюпорта.
             //
@@ -188,7 +156,6 @@ public sealed class MelBotOverlay : Overlay
 
             // 2) Из снимка ищем ближайшего к курсору в пределах SnapTiles тайлов.
             //    Дистанция в мире: 1 тайл = 1 единица, никаких зумов не нужно.
-            var nearest = Vector2.Zero;
             EntityUid? nearestUid = null;
             var found = false;
             var usable = 0;
@@ -224,7 +191,6 @@ public sealed class MelBotOverlay : Overlay
 
                 near++;
                 bestDist = dist;
-                nearest = world;
                 nearestUid = uid;
                 found = true;
             }
@@ -245,10 +211,41 @@ public sealed class MelBotOverlay : Overlay
                 }
             }
 
-            if (!found)
+            // Выбор активной цели. Пока зажата любая кнопка атаки — держим
+            // захваченную цель, даже если курсор уже далеко (SnapTiles не мешает).
+            // Кнопку отпустили — захват снимается, цель снова ищется под курсором.
+            var input = _ent.System<Robust.Client.GameObjects.InputSystem>();
+            var held = input.CmdStates.GetState(EngineKeyFunctions.Use) == BoundKeyState.Down
+                       || input.CmdStates.GetState(EngineKeyFunctions.UseSecondary) == BoundKeyState.Down;
+
+            EntityUid? activeUid;
+            if (held)
+            {
+                if (_lockTarget is { } locked && _ent.EntityExists(locked) && _ent.HasComponent<TransformComponent>(locked))
+                {
+                    activeUid = locked;
+                }
+                else if (found)
+                {
+                    _lockTarget = nearestUid;
+                    activeUid = nearestUid;
+                }
+                else
+                {
+                    activeUid = null;
+                }
+            }
+            else
+            {
+                _lockTarget = null;
+                activeUid = nearestUid;
+            }
+
+            if (activeUid is not { } target || !_ent.HasComponent<TransformComponent>(target))
                 return;
 
-            CurrentTarget = nearestUid;
+            var targetWorld = _transform.GetWorldPosition(target);
+            CurrentTarget = target;
 
             // Рисуем в ScreenSpace, поэтому мировые точки переводим в экранные
             // WorldToLocal того же вьюпорта — он в тех же координатах, что и LocalToWorld,
@@ -256,16 +253,15 @@ public sealed class MelBotOverlay : Overlay
             var handle = args.ScreenHandle;
             var origin = args.ViewportBounds.TopLeft;
             var fromScreen = args.Viewport.WorldToLocal(_transform.GetWorldPosition(self)) + origin;
-            var targetScreen = args.Viewport.WorldToLocal(nearest) + origin;
-            CurrentTargetMapCoordinates = _transform.ToMapCoordinates(
-                new EntityCoordinates(_transform.GetParentUid(nearestUid!.Value), nearest));
+            var targetScreen = args.Viewport.WorldToLocal(targetWorld) + origin;
+            CurrentTargetMapCoordinates = _transform.GetMapCoordinates(target);
             CurrentTargetScreenPosition = targetScreen;
 
             // 0.3 тайла в пикселях экрана. Масштаб берём у самой камеры:
             // две соседние мировые точки (на расстоянии ArcRadiusTiles) дают
             // в WorldToLocal экранное расстояние — это и есть радиус дуги в пикселях.
-            var targetLocal = args.Viewport.WorldToLocal(nearest);
-            var edgeLocal = args.Viewport.WorldToLocal(nearest + new Vector2(ArcRadiusTiles, 0f));
+            var targetLocal = args.Viewport.WorldToLocal(targetWorld);
+            var edgeLocal = args.Viewport.WorldToLocal(targetWorld + new Vector2(ArcRadiusTiles, 0f));
             var arcRadius = (edgeLocal - targetLocal).Length();
 
             DrawThickLine(handle, fromScreen, targetScreen, LineWidth, Line);
@@ -450,5 +446,38 @@ internal static class MelBotAttackCursorPatch
 
         __result = new ScreenCoordinates(MelBotOverlay.CurrentTargetScreenPosition, MelBotOverlay.CurrentWindow);
         return false;
+    }
+}
+
+// Ближний бой сам по себе не повторяет удар при удержании кнопки: после первого
+// удара MeleeWeaponComponent.Attacking остаётся true, и новые удары не идут до
+// отпускания. Пока мод держит цель и зажата кнопка, гасим флаг перед апдейтом —
+// получается непрерывная атака по цели.
+[HarmonyLib.HarmonyPatch(typeof(Content.Client.Weapons.Melee.MeleeWeaponSystem),
+    nameof(Content.Client.Weapons.Melee.MeleeWeaponSystem.Update))]
+internal static class MelBotMeleePatch
+{
+    private static void Prefix(Content.Client.Weapons.Melee.MeleeWeaponSystem __instance)
+    {
+        if (MelBotOverlay.CurrentTarget is null)
+            return;
+
+        if (!IoCManager.Resolve<IGameTiming>().IsFirstTimePredicted)
+            return;
+
+        var ent = IoCManager.Resolve<IEntityManager>();
+        var player = IoCManager.Resolve<IPlayerManager>();
+        if (player.LocalEntity is not { Valid: true } self)
+            return;
+
+        var input = ent.System<Robust.Client.GameObjects.InputSystem>();
+        if (input.CmdStates.GetState(EngineKeyFunctions.Use) != BoundKeyState.Down &&
+            input.CmdStates.GetState(EngineKeyFunctions.UseSecondary) != BoundKeyState.Down)
+        {
+            return;
+        }
+
+        if (__instance.TryGetWeapon(self, out _, out var weapon) && weapon is not null)
+            weapon.Attacking = false;
     }
 }

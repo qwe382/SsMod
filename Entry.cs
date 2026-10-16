@@ -18,8 +18,34 @@ public static class ModEntry
             }
 
             // Patch while the assembly is still visible (see MarseyEntry for why order matters).
-            new Harmony(HarmonyId).PatchAll(Assembly.GetExecutingAssembly());
-            Console.WriteLine("[SsMod] Harmony patched");
+            //
+            // ВАЖНО: PatchAll накладывает все патчи разом и падает на первом же
+            // проблемном — тогда не работает вообще ничего. Поэтому накладываем
+            // каждый класс отдельно и переживаем сбой одного из них.
+            var harmony = new Harmony(HarmonyId);
+            var assembly = Assembly.GetExecutingAssembly();
+            var applied = 0;
+            var failed = 0;
+
+            foreach (var type in assembly.GetTypes())
+            {
+                if (type.GetCustomAttribute<HarmonyPatch>() == null)
+                    continue;
+
+                try
+                {
+                    harmony.CreateClassProcessor(type).Patch();
+                    applied++;
+                }
+                catch (Exception e)
+                {
+                    failed++;
+                    Console.Error.WriteLine(
+                        $"[SsMod] patch failed: {type.FullName}: {e.InnerException?.Message ?? e.Message}");
+                }
+            }
+
+            Console.WriteLine($"[SsMod] Harmony patched: {applied} ok, {failed} failed");
 
             // Safety net: if the marsey loader routed here directly (not via MarseyEntry),
             // hide the assembly now that patching is done. Idempotent.
