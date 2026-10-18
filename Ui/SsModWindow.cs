@@ -125,10 +125,6 @@ public sealed class SsModWindow : DefaultWindow
         damagePopup.OnToggled += args => DamagePopup.Toggle(args.Pressed);
         box.AddChild(damagePopup);
 
-        var reagents = ReagentExamine.BuildCheckBox();
-        reagents.OnToggled += args => ReagentExamine.Toggle(args.Pressed);
-        box.AddChild(reagents);
-
         return box;
     }
 
