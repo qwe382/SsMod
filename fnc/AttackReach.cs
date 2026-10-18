@@ -39,6 +39,26 @@ internal static class AttackReach
         }
     }
 
+    // Ствол в активной руке. По этому признаку роутер боя выключает мелбот
+    // и передаёт бой gun-bot'у (см. fnc/GunBot.cs).
+    public static bool TryGetGun(IEntityManager ent, EntityUid self, out EntityUid gun)
+    {
+        gun = EntityUid.Invalid;
+
+        var hands = Hands(ent);
+        if (hands is null)
+            return false;
+
+        if (!hands.TryGetActiveItem(self, out var held) || held is not { } heldUid)
+            return false;
+
+        if (!ent.HasComponent<GunComponent>(heldUid))
+            return false;
+
+        gun = heldUid;
+        return true;
+    }
+
     // false — ограничения нет: оружие дальнего боя (у него дальность задаёт
     // снаряд, а не компонент ближнего боя) или в руках что-то непонятное.
     public static bool TryGetReach(IEntityManager ent, EntityUid self, out float reach)

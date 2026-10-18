@@ -1,7 +1,9 @@
 using Content.Client.Entry;
 using HarmonyLib;
+using Robust.Client.Graphics;
 using Robust.Shared.IoC;
 using Robust.Shared.Log;
+using SsMod.Fnc;
 using SsMod.Ui;
 
 namespace SsMod.Patches;
@@ -21,6 +23,16 @@ public static class StartupPatch
 
             _sawmill ??= IoCManager.Resolve<ILogManager>().GetSawmill("ssmod");
             _sawmill.Info("PostInit: SsMod активен");
+
+            // Всплывашки роутера боя (ближний/дальний) у курсора. Роутер работает
+            // всегда, поэтому оверлей ставим сразу, а не галочкой.
+            var overlays = IoCManager.Resolve<IOverlayManager>();
+            if (!overlays.HasOverlay<RouterPopupOverlay>())
+                overlays.AddOverlay(new RouterPopupOverlay());
+
+            // Визуалы gun-bot'а (синие дуги) — только если аимбот отмечен в конфиге.
+            if (GunBot.Aim)
+                GunBot.ToggleOverlay(true);
 
            // SsModUi.Create();
 

@@ -13,7 +13,8 @@ public enum Priority
 }
 
 // Система приоритетов: хранит метку для каждого персонажа (по NetEntity).
-// Метка ставится через ПКМ-меню (см. PriorityVerbs.cs), читается мелботом.
+// Метка ставится через ПКМ-меню (см. PriorityVerbs.cs), читается ботами через
+// выбор цели (fnc/Targeting.cs) и красит ESP (fnc/Esp.cs).
 public static class Priorities
 {
     private static readonly Dictionary<NetEntity, Priority> Labels = new();
@@ -41,4 +42,17 @@ public static class Priorities
     public static bool IsFriend(EntityUid target) => Get(target) == Priority.Friend;
 
     public static bool IsEnemy(EntityUid target) => Get(target) == Priority.Enemy;
+
+    // Сколько меток стоит сейчас (для окна мода).
+    public static int Count => Labels.Count;
+
+    // Снять все метки сразу (кнопка Del prior во вкладке Gun-bot). Возвращаем,
+    // сколько сняли, — чтобы было что показать в окне.
+    public static int Clear()
+    {
+        var count = Labels.Count;
+        Labels.Clear();
+        Console.WriteLine($"[SsMod] приоритеты сброшены: снято меток {count}");
+        return count;
+    }
 }

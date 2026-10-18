@@ -16,6 +16,7 @@ public sealed class SsModWindow : DefaultWindow
     {
         ("Фрейм 1", BuildFrame1),
         ("ESP", Esp.BuildTab),
+        ("Gun-bot", GunBot.BuildTab),
         ("Конфиг", Config.BuildTab),
         ("Дебаг", BuildDebug),
         ("Твики", BuildTweaks),

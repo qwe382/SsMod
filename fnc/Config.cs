@@ -92,6 +92,10 @@ public static class Config
         Add("quickFlush",
             () => QuickFlush.Enabled ? "true" : "false",
             v => QuickFlush.Toggle(ParseBool(v)));
+
+        Add("gunbot.aim",
+            () => GunBot.Aim ? "true" : "false",
+            v => GunBot.SetAim(ParseBool(v)));
     }
 
     private static void Add(string key, Func<string> get, Action<string> set)

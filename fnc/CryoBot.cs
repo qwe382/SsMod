@@ -83,9 +83,8 @@ public sealed class CryoBotOverlay : Overlay
 
     private readonly SharedTransformSystem _transform;
 
-    // Снимки на кадр: AllEntityQueryEnumerator — это энумератор живого словаря,
+    // Снимок на кадр: AllEntityQueryEnumerator — это энумератор живого словаря,
     // вход нового игрока ломает итерацию, поэтому сначала копируем uid'ы.
-    private readonly List<EntityUid> _mobs = new();
     private readonly List<EntityUid> _pods = new();
 
     private Robust.Client.GameObjects.InputSystem? _inputSystem;
@@ -132,7 +131,7 @@ public sealed class CryoBotOverlay : Overlay
         var selfWorld = _transform.GetWorldPosition(self);
         var map = _transform.GetMapId(self);
 
-        var target = FindEnemy(self, map, selfWorld);
+        var target = FindEnemy(self);
 
         // Капсулу ищем только «в бою»: во время цикла она уже зафиксирована.
         if (_phase is Phase.Idle or Phase.Attack)
@@ -329,47 +328,11 @@ public sealed class CryoBotOverlay : Overlay
 
     // ------------------------------------------------------- поиск целей
 
-    private EntityUid? FindEnemy(EntityUid self, MapId map, Vector2 selfWorld)
+    private EntityUid? FindEnemy(EntityUid self)
     {
-        _mobs.Clear();
-
-        var mobs = _ent.AllEntityQueryEnumerator<MobStateComponent, MetaDataComponent>();
-        while (mobs.MoveNext(out var uid, out var mob, out _))
-        {
-            if (uid != self && mob.CurrentState == MobState.Alive)
-                _mobs.Add(uid);
-        }
-
-        EntityUid? best = null;
-        var bestDist = TargetRange * TargetRange;
-
-        foreach (var uid in _mobs)
-        {
-            if (uid == self)
-                continue;
-
-            if (!_ent.TryGetComponent(uid, out MetaDataComponent? meta) || meta.Deleted)
-                continue;
-
-            if (!_ent.HasComponent<TransformComponent>(uid))
-                continue;
-
-            // Бьём только тех, кому через ПКМ поставили Make Enemy.
-            if (!Priorities.IsEnemy(uid))
-                continue;
-
-            if (_transform.GetMapId(uid) != map)
-                continue;
-
-            var dist = (_transform.GetWorldPosition(uid) - selfWorld).LengthSquared();
-            if (dist >= bestDist)
-                continue;
-
-            bestDist = dist;
-            best = uid;
-        }
-
-        return best;
+        // Цель выбирает общий Targeting — там же снимок живых и система
+        // приоритетов: бьём только тех, кому через ПКМ поставили Make Enemy.
+        return Targeting.NearestEnemy(_ent, self, TargetRange);
     }
 
     private EntityUid? FindPod(EntityUid self, MapId map, Vector2 selfWorld)

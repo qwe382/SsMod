@@ -8,13 +8,14 @@ using Robust.Shared.IoC;
 
 namespace SsMod.Fnc;
 
-// ПКМ по персонажу -> пункты "Make Friend" / "Make Enemy".
+// ПКМ по персонажу -> пункты "Make Friend" / "Make Enemy" / "Del prior".
 // Меню строится из глаголов (verbs), которые отдаёт VerbSystem.GetVerbs;
 // добавляем свои клиентские глаголы в готовый список.
 [HarmonyPatch(typeof(VerbSystem), nameof(VerbSystem.GetVerbs))]
 internal static class PriorityVerbsPatch
 {
-    // Пункты меню красим в цвета категорий ESP: друг — зелёный, враг — красный.
+    // Пункты меню красим в цвета категорий ESP: друг — зелёный, враг — красный,
+    // снятие метки — серый.
     // Текст пункта рисует Label и разбирает его как разметку
     // (ContextMenuElement.Text -> FormattedMessage.FromMarkupPermissive), поэтому
     // цвет задаём прямо в тексте. Поля для стиля у Verb нет смысла использовать:
@@ -24,6 +25,7 @@ internal static class PriorityVerbsPatch
     // VerbSystem.ExecuteVerb вызывает Act по объекту, а не ищет по тексту.
     private const string FriendText = "[color=#33FF59]Make Friend[/color]";
     private const string EnemyText = "[color=#FF4040]Make Enemy[/color]";
+    private const string DelText = "[color=#BBBBBB]Del prior[/color]";
 
     private static void Postfix(NetEntity target, EntityUid user, ref SortedSet<Verb> __result)
     {
@@ -51,5 +53,18 @@ internal static class PriorityVerbsPatch
             Priority = 100,
             Act = () => Priorities.Set(target, Priority.Enemy),
         });
+
+        // Снять метку: персонаж снова нейтральный. Пункт показываем только когда
+        // метка есть — иначе меню засорялось бы пустым действием.
+        if (Priorities.Get(target) != Priority.Neutral)
+        {
+            __result.Add(new Verb
+            {
+                Text = DelText,
+                ClientExclusive = true,
+                Priority = 100,
+                Act = () => Priorities.Set(target, Priority.Neutral),
+            });
+        }
     }
 }
