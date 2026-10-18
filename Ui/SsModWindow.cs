@@ -46,7 +46,9 @@ public sealed class SsModWindow : DefaultWindow
             // Без ReturnMeasure скролл в MeasureOverride возвращает Vector2.Zero
             // и схлопывается в ноль. Так во всех рабочих окнах игры.
             ReturnMeasure = true,
-            HorizontalExpand = true,
+            // Ширина колонки — ровно по кнопкам (MinWidth у nav). С HorizontalExpand
+            // скролл делил бы окно пополам с правой частью.
+            HorizontalExpand = false,
             VerticalExpand = true,
         };
         navScroll.AddChild(nav);
@@ -92,10 +94,8 @@ public sealed class SsModWindow : DefaultWindow
     {
         var box = new BoxContainer { Orientation = BoxContainer.LayoutOrientation.Vertical };
 
-        // Переключатель Mel-Bot: линия до персонажа под курсором.
-        var melBot = MelBot.BuildCheckBox();
-        melBot.OnToggled += args => MelBot.Toggle(args.Pressed);
-        box.AddChild(melBot);
+        // Переключатель Mel-Bot: линия до персонажа под курсором + автоудар.
+        box.AddChild(MelBot.BuildControls());
 
         // Крио-бот: сам бьёт помеченных Make Enemy и чередует заходы в капсулу.
         box.AddChild(CryoBot.BuildControls());
@@ -120,6 +120,14 @@ public sealed class SsModWindow : DefaultWindow
         var noEffects = NoEffects.BuildCheckBox();
         noEffects.OnToggled += args => NoEffects.Toggle(args.Pressed);
         box.AddChild(noEffects);
+
+        var damagePopup = DamagePopup.BuildCheckBox();
+        damagePopup.OnToggled += args => DamagePopup.Toggle(args.Pressed);
+        box.AddChild(damagePopup);
+
+        var reagents = ReagentExamine.BuildCheckBox();
+        reagents.OnToggled += args => ReagentExamine.Toggle(args.Pressed);
+        box.AddChild(reagents);
 
         return box;
     }

@@ -76,6 +76,20 @@ public sealed class MelBotOverlay : Overlay
     // Пока активен крио-бот, цель публикует он: мелбот не должен её затирать.
     internal static bool YieldToCryoBot => CryoBotOverlay.Active;
 
+    // Автоудар: сами бьём помеченных врагов (ПКМ -> Make Enemy), мышь держать не
+    // нужно. Кнопка выбирается галочкой «Исп. ЛКМ»: по умолчанию КПМ (тяжёлый
+    // удар ближнего боя; для стрельбы обычно нужна именно ЛКМ).
+    public static bool AutoAttack;
+    public static bool AutoAttackLmb;
+
+    // Пока true — боевым системам отдаётся «кнопка атаки зажата» (см.
+    // MelBotAutoAttackPatch). Пересчитывается каждый кадр в Draw.
+    internal static bool HoldAuto;
+
+    // Докуда искать помеченного врага для автоудара. Вне дальности оружия удар
+    // всё равно не форсируется (AttackReach), это только радиус поиска.
+    public const float AutoRange = 12f;
+
     [Dependency] private readonly IEntityManager _ent = default!;
     [Dependency] private readonly IPlayerManager _player = default!;
     [Dependency] private readonly IGameTiming _timing = default!;
@@ -119,6 +133,7 @@ public sealed class MelBotOverlay : Overlay
     // Последняя напечатанная диагностика, чтобы не спамить каждый кадр.
     private string _lastDiag = "";
     private double _lastDiagTime;
+    private double _lastMissTime;
 
     public MelBotOverlay()
     {
@@ -128,6 +143,10 @@ public sealed class MelBotOverlay : Overlay
 
     protected override void Draw(in OverlayDrawArgs args)
     {
+        // Автоудар пересчитывается каждый кадр: сбрасываем до всех выходов,
+        // иначе после выключения мелбота кнопка осталась бы «зажатой».
+        HoldAuto = false;
+
         // Атакой сейчас управляет крио-бот — не трогаем опубликованную им цель.
         if (YieldToCryoBot)
             return;
@@ -164,7 +183,7 @@ public sealed class MelBotOverlay : Overlay
             var screenMouse = IoCManager.Resolve<IInputManager>().MouseScreenPosition;
             CurrentWindow = screenMouse.Window;
             var mouse = screenMouse.Position;
-            var localMouse = mouse - args.ViewportBounds.TopLeft;
+            var localMouse = mouse - Compat.BoxTopLeft(args.ViewportBounds);
             var mouseWorld = args.Viewport.LocalToWorld(localMouse).Position;
 
             _zoomDiag = eye.Zoom.X;
@@ -223,18 +242,51 @@ public sealed class MelBotOverlay : Overlay
 
             LogDiag(_livingEntities.Count, usable, near, found, mouseWorld);
 
-            // Временный детальный лог пропусков: печатаем только при непустом списке
-            // или при изменении состояния, чтобы не спамить.
-            if (missLog.Count > 0)
+            // Временный детальный лог пропусков: список сущностей тяжёлый (килобайты
+            // на строку), поэтому строго не чаще раза в секунду. Сравнивать состояние
+            // тут нельзя: в строке есть мышь и дистанции, они меняются каждый кадр.
+            if (missLog.Count > 0 && _timing.RealTime.TotalSeconds - _lastMissTime >= 1.0)
             {
                 var missText = string.Join(", ", missLog);
                 var state = $"всего={_livingEntities.Count}, с трансформом={usable}, рядом={near}, цель={found}, зум={_zoomDiag:0.#}, мышь={mouseWorld.X:0.#},{mouseWorld.Y:0.#}, пропуски:[{missText}]";
-                if (state != _lastDiag || (_timing.RealTime.TotalSeconds - _lastDiagTime) >= 1.0)
+                _lastMissTime = _timing.RealTime.TotalSeconds;
+                Console.WriteLine($"[SsMod] melbot: {state}");
+            }
+
+            // Автоудар: сами выбираем ближайшего помеченного врага. Курсор в этом
+            // режиме не нужен; если помеченных рядом нет — всё работает как
+            // раньше, по курсору и зажатой кнопке.
+            EntityUid? autoTarget = null;
+
+            if (AutoAttack)
+            {
+                var selfWorldAuto = _transform.GetWorldPosition(self);
+                var selfMapAuto = _transform.GetMapId(self);
+                var bestAuto = AutoRange * AutoRange;
+
+                foreach (var uid in _livingEntities)
                 {
-                    _lastDiag = state;
-                    _lastDiagTime = _timing.RealTime.TotalSeconds;
-                    Console.WriteLine($"[SsMod] melbot: {state}");
+                    if (uid == self || !Priorities.IsEnemy(uid))
+                        continue;
+
+                    if (!_ent.HasComponent<TransformComponent>(uid))
+                        continue;
+
+                    if (_transform.GetMapId(uid) != selfMapAuto)
+                        continue;
+
+                    var dist = (_transform.GetWorldPosition(uid) - selfWorldAuto).LengthSquared();
+                    if (dist >= bestAuto)
+                        continue;
+
+                    bestAuto = dist;
+                    autoTarget = uid;
                 }
+
+                // Вне дальности оружия не машем по пустоте: автоудар — это удар,
+                // а не размахивание. Достанем — цель появится сама.
+                if (autoTarget is { } candidate && !AttackReach.InReach(_ent, self, candidate))
+                    autoTarget = null;
             }
 
             // Выбор активной цели. Пока зажата любая кнопка атаки — держим
@@ -245,7 +297,13 @@ public sealed class MelBotOverlay : Overlay
                        || input.CmdStates.GetState(EngineKeyFunctions.UseSecondary) == BoundKeyState.Down;
 
             EntityUid? activeUid;
-            if (held)
+            if (autoTarget is { } autoUid)
+            {
+                // Автоудар важнее курсора: держим помеченного врага.
+                _lockTarget = autoUid;
+                activeUid = autoUid;
+            }
+            else if (held)
             {
                 if (_lockTarget is { } locked && _ent.EntityExists(locked) && _ent.HasComponent<TransformComponent>(locked))
                 {
@@ -270,6 +328,10 @@ public sealed class MelBotOverlay : Overlay
             if (activeUid is not { } target || !_ent.HasComponent<TransformComponent>(target))
                 return;
 
+            // Кнопку жмём только когда цель реально есть: иначе персонаж бил бы
+            // по тому, куда случайно смотрит настоящий курсор.
+            HoldAuto = autoTarget is not null;
+
             var targetWorld = _transform.GetWorldPosition(target);
             CurrentTarget = target;
 
@@ -282,7 +344,7 @@ public sealed class MelBotOverlay : Overlay
             // WorldToLocal того же вьюпорта — он в тех же координатах, что и LocalToWorld,
             // из которого получена mouseWorld. Плюс GlobalPixelPosition вьюпорта.
             var handle = args.ScreenHandle;
-            var origin = args.ViewportBounds.TopLeft;
+            var origin = Compat.BoxTopLeft(args.ViewportBounds);
             var fromScreen = args.Viewport.WorldToLocal(selfWorld) + origin;
             var targetScreen = args.Viewport.WorldToLocal(targetWorld) + origin;
             CurrentTargetMapCoordinates = _transform.GetMapCoordinates(target);
@@ -307,18 +369,19 @@ public sealed class MelBotOverlay : Overlay
         }
     }
 
-    // Диагностика: печатаем, только если состояние изменилось или прошла секунда.
+    // Диагностика: не чаще раза в секунду. Проверять «изменилось ли состояние»
+    // тут бессмысленно — в тексте есть мышь и зум, они меняются каждый кадр,
+    // и лог раздувался до десятков мегабайт за минуты (клиент пишет его синхронно).
     private void LogDiag(int total, int usable, int near, bool found, Vector2 mouseWorld)
     {
         var now = _timing.RealTime.TotalSeconds;
-        var text = $"всего={total}, с трансформом={usable}, рядом={near}, цель={found}, "
-                   + $"зум={_zoomDiag:0.##}, мышь={mouseWorld.X:0.#},{mouseWorld.Y:0.#}";
-        if (text == _lastDiag && now - _lastDiagTime < 1.0)
+        if (now - _lastDiagTime < 1.0)
             return;
 
-        _lastDiag = text;
         _lastDiagTime = now;
-        Console.WriteLine($"[SsMod] melbot: {text}");
+        _lastDiag = $"всего={total}, с трансформом={usable}, рядом={near}, цель={found}, "
+                    + $"зум={_zoomDiag:0.##}, мышь={mouseWorld.X:0.#},{mouseWorld.Y:0.#}";
+        Console.WriteLine($"[SsMod] melbot: {_lastDiag}");
     }
 
     private float _zoomDiag;
@@ -383,17 +446,72 @@ public sealed class MelBotOverlay : Overlay
     }
 }
 
-// Переключатель в окне мода (Ui/SsModWindow.cs, фрейм 1).
+// Переключатель и настройки автоудара в окне мода (Ui/SsModWindow.cs, фрейм 1).
 public static class MelBot
 {
-    public static CheckBox BuildCheckBox()
+    public static Control BuildControls()
     {
-        return new CheckBox
+        var box = new BoxContainer { Orientation = BoxContainer.LayoutOrientation.Vertical };
+
+        var check = new CheckBox
         {
             Text = "Mel-Bot",
             Pressed = IoCManager.Resolve<IOverlayManager>().HasOverlay<MelBotOverlay>(),
             ToolTip = "Линия от персонажа к тому, кто под курсором",
         };
+
+        // Настройки автоудара не прячем и не сворачиваем: они всегда на виду,
+        // а когда бот выключен — просто серые (Disabled). Отступ слева, чтобы
+        // было видно, что это подпункты Mel-Bot'а.
+        var settings = new BoxContainer
+        {
+            Orientation = BoxContainer.LayoutOrientation.Vertical,
+            Margin = new Thickness(16f, 0f, 0f, 0f),
+        };
+
+        var auto = new CheckBox
+        {
+            Text = "Автоудар по врагам (Make Enemy)",
+            Pressed = MelBotOverlay.AutoAttack,
+            ToolTip = "Бьём помеченных врагов сами — удерживать мышь не нужно",
+        };
+
+        var lmb = new CheckBox
+        {
+            Text = "Исп. ЛКМ",
+            Pressed = MelBotOverlay.AutoAttackLmb,
+            ToolTip = "Выкл — КПМ (тяжёлый удар). Вкл — ЛКМ (обычный удар, стрельба)",
+        };
+
+        // Галочки не исчезают: недоступные просто гаснут.
+        void Refresh()
+        {
+            auto.Disabled = !check.Pressed;
+            lmb.Disabled = !check.Pressed || !auto.Pressed;
+        }
+
+        auto.OnToggled += args =>
+        {
+            MelBotOverlay.AutoAttack = args.Pressed;
+            Refresh();
+        };
+
+        lmb.OnToggled += args => MelBotOverlay.AutoAttackLmb = args.Pressed;
+
+        settings.AddChild(auto);
+        settings.AddChild(lmb);
+
+        check.OnToggled += args =>
+        {
+            Toggle(args.Pressed);
+            Refresh();
+        };
+
+        box.AddChild(check);
+        box.AddChild(settings);
+
+        Refresh();
+        return box;
     }
 
     public static void Toggle(bool on)
@@ -409,8 +527,36 @@ public static class MelBot
         else
         {
             overlays.RemoveOverlay<MelBotOverlay>();
+            MelBotOverlay.HoldAuto = false;
             MelBotOverlay.SetTarget(null, default, default, default, true);
         }
+    }
+}
+
+// Автоудар: пока мод сам ведёт бой (мелбот нашёл помеченного врага в пределах
+// дальности), отдаём всем боевым системам «кнопка атаки зажата». Они читают
+// состояние кнопок из PlayerCommandStates (MeleeWeaponSystem.Update,
+// GunSystem.Update), поэтому удар уходит на сервер обычным порядком — как будто
+// игрок сам держит кнопку.
+//
+// Кнопка выбирается галочкой «Исп. ЛКМ»: по умолчанию КПМ (тяжёлая атака
+// ближнего боя), с галочкой — ЛКМ (обычная атака; из оружия дальнего боя обычно
+// стреляет именно она).
+[HarmonyLib.HarmonyPatch(typeof(Robust.Shared.Input.PlayerCommandStates),
+    nameof(Robust.Shared.Input.PlayerCommandStates.GetState))]
+internal static class MelBotAutoAttackPatch
+{
+    private static void Postfix(BoundKeyFunction function, ref BoundKeyState __result)
+    {
+        if (__result == BoundKeyState.Down || !MelBotOverlay.HoldAuto)
+            return;
+
+        var button = MelBotOverlay.AutoAttackLmb
+            ? EngineKeyFunctions.Use
+            : EngineKeyFunctions.UseSecondary;
+
+        if (function == button)
+            __result = BoundKeyState.Down;
     }
 }
 

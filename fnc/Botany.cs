@@ -21,6 +21,23 @@ public static class BotanyRead
 {
     public const string LabelName = "SsModBotanyInfo";
 
+    private static bool? _available;
+
+    // Есть ли на этой сборке штатная ботаника. На форках (например Corvax Frontier)
+    // компонентов Content.Shared.Botany.Components.* нет — там фича молча выключена.
+    public static bool Available
+    {
+        get
+        {
+            if (_available.HasValue)
+                return _available.Value;
+
+            _available = Compat.FindType("Content.Shared.Botany.Components.PlantHolderComponent") != null
+                         || Compat.FindType("Content.Shared.Botany.Components.PlantComponent") != null;
+            return _available.Value;
+        }
+    }
+
     public static string? BuildText(EntityUid target, string existingText)
     {
         var ent = IoCManager.Resolve<IEntityManager>();
@@ -124,6 +141,11 @@ public static class BotanyExaminePatch
 {
     public static void Postfix(ExamineSystem __instance, EntityUid target, FormattedMessage message)
     {
+        // На сборках без штатной ботаники выходим сразу: BuildText там даже не JIT-ится,
+        // иначе наружу летит TypeLoadException на каждый осмотр.
+        if (!BotanyRead.Available)
+            return;
+
         try
         {
             var field = typeof(ExamineSystem).GetField("_examineTooltipOpen", BindingFlags.Instance | BindingFlags.NonPublic);

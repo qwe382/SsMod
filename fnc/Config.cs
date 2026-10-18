@@ -57,6 +57,14 @@ public static class Config
             () => IoCManager.Resolve<IOverlayManager>().HasOverlay<MelBotOverlay>() ? "true" : "false",
             v => MelBot.Toggle(ParseBool(v)));
 
+        Add("melbot.auto",
+            () => MelBotOverlay.AutoAttack ? "true" : "false",
+            v => MelBotOverlay.AutoAttack = ParseBool(v));
+
+        Add("melbot.lmb",
+            () => MelBotOverlay.AutoAttackLmb ? "true" : "false",
+            v => MelBotOverlay.AutoAttackLmb = ParseBool(v));
+
         Add("cryobot",
             () => IoCManager.Resolve<IOverlayManager>().HasOverlay<CryoBotOverlay>() ? "true" : "false",
             v => CryoBot.Toggle(ParseBool(v)));
@@ -84,6 +92,10 @@ public static class Config
         Add("quickFlush",
             () => QuickFlush.Enabled ? "true" : "false",
             v => QuickFlush.Toggle(ParseBool(v)));
+
+        Add("examineReagents",
+            () => ReagentExamine.Enabled ? "true" : "false",
+            v => ReagentExamine.Toggle(ParseBool(v)));
     }
 
     private static void Add(string key, Func<string> get, Action<string> set)

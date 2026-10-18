@@ -10,6 +10,7 @@ using Robust.Shared.Log;
 using Robust.Shared.Map;
 using Robust.Shared.Map.Components;
 using Robust.Shared.Maths;
+using SsMod.Fnc;
 
 namespace SsMod.Debug;
 
@@ -27,7 +28,6 @@ namespace SsMod.Debug;
 public sealed class PassabilityOverlay : Overlay
 {
     [Dependency] private readonly IEntityManager _ent = default!;
-    [Dependency] private readonly IMapManager _mapMan = default!;
 
     private readonly SharedTransformSystem _transform;
     private readonly Robust.Client.GameObjects.MapSystem _map;
@@ -69,7 +69,8 @@ public sealed class PassabilityOverlay : Overlay
                 return;
 
             _grids.Clear();
-            _mapMan.FindGridsIntersecting(mapId, args.WorldBounds, ref _grids);
+            // В 276 поиск гридов живёт в IMapManager, в 290 — в SharedMapSystem.
+            Compat.FindGridsIntersecting(_map, mapId, args.WorldBounds, _grids);
 
             var handle = args.WorldHandle;
             var tilesDrawn = 0;

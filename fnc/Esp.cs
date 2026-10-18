@@ -145,7 +145,7 @@ public sealed class EspOverlay : Overlay
             return;
 
         var mapId = eye.Position.MapId;
-        var origin = args.ViewportBounds.TopLeft;
+        var origin = Compat.BoxTopLeft(args.ViewportBounds);
         var selfPos = _transform.GetWorldPosition(self);
         var handle = args.ScreenHandle;
 
@@ -233,13 +233,13 @@ public sealed class EspOverlay : Overlay
         var worldCenter = world + category.Offset;
 
         // Габариты цели на экране — от них позиционируются полоски и имя.
-        var origin = args.ViewportBounds.TopLeft;
+        var origin = Compat.BoxTopLeft(args.ViewportBounds);
         var box = Rect(
             args.Viewport.WorldToLocal(worldCenter + new Vector2(-size.X / 2f, size.Y / 2f)) + origin,
             args.Viewport.WorldToLocal(worldCenter + new Vector2(size.X / 2f, -size.Y / 2f)) + origin);
 
         // Полоски не зависят от рамки, позиция — от нижнего центра цели.
-        var anchor = new Vector2((box.Left + box.Right) / 2f, box.Bottom);
+        var anchor = new Vector2((Compat.BoxLeft(box) + Compat.BoxRight(box)) / 2f, Compat.BoxBottom(box));
 
         if (TryGetBar(uid, health: true, out var hpRatio, out var hpValue))
             DrawBar(handle, anchor, category.HealthBar, hpRatio, hpValue);
@@ -251,18 +251,18 @@ public sealed class EspOverlay : Overlay
         {
             var scale = MathF.Max(category.NameScale, 0.1f);
             var textPos = new Vector2(
-                (box.Left + box.Right) / 2f - meta.EntityName.Length * 5.5f * scale + category.NameOffset.X,
-                box.Top - _font.GetLineHeight(scale) - 3f + category.NameOffset.Y);
-            handle.DrawString(_font, textPos, meta.EntityName, scale, category.Color.WithAlpha(0.95f));
+                (Compat.BoxLeft(box) + Compat.BoxRight(box)) / 2f - meta.EntityName.Length * 5.5f * scale + category.NameOffset.X,
+                Compat.BoxTop(box) - _font.GetLineHeight(scale) - 3f + category.NameOffset.Y);
+            Compat.DrawText(handle, _font, textPos, meta.EntityName, scale, category.Color.WithAlpha(0.95f));
         }
 
         if (category.Distance)
         {
             var text = $"{distance:0.0} м";
             var textPos = new Vector2(
-                (box.Left + box.Right) / 2f - text.Length * 5.5f * category.NameScale + category.NameOffset.X,
-                box.Bottom + 20f + category.NameOffset.Y);
-            handle.DrawString(_font, textPos, text, category.NameScale, category.Color.WithAlpha(0.95f));
+                (Compat.BoxLeft(box) + Compat.BoxRight(box)) / 2f - text.Length * 5.5f * category.NameScale + category.NameOffset.X,
+                Compat.BoxBottom(box) + 20f + category.NameOffset.Y);
+            Compat.DrawText(handle, _font, textPos, text, category.NameScale, category.Color.WithAlpha(0.95f));
         }
     }
 
@@ -293,7 +293,7 @@ public sealed class EspOverlay : Overlay
             var text = $"{(int) value}";
             const float scale = 0.8f;
             var textPos = new Vector2(left + width / 2f - text.Length * 5.5f * scale, top - height - 1f);
-            handle.DrawString(_font, textPos, text, scale, Color.White.WithAlpha(0.95f));
+            Compat.DrawText(handle, _font, textPos, text, scale, Color.White.WithAlpha(0.95f));
         }
     }
 
@@ -305,7 +305,8 @@ public sealed class EspOverlay : Overlay
 
         if (health)
         {
-            if (!_ent.TryGetComponent(uid, out DamageableComponent? damageable))
+            // Компонент урона называется по-разному в разных версиях контента.
+            if (Compat.GetTotalDamage(_ent, uid) is not { } totalDamage)
                 return false;
 
             if (!_ent.TryGetComponent(uid, out MobThresholdsComponent? thresholds) ||
@@ -321,7 +322,7 @@ public sealed class EspOverlay : Overlay
             if (max <= 0f)
                 return false;
 
-            value = max - (float) damageable.TotalDamage;
+            value = max - totalDamage;
             ratio = Math.Clamp(value / max, 0f, 1f);
             return true;
         }
@@ -385,10 +386,10 @@ public sealed class EspOverlay : Overlay
     private static RectF ViewRect(UIBox2i bounds)
     {
         return new RectF(
-            MathF.Min(bounds.Left, bounds.Right),
-            MathF.Min(bounds.Top, bounds.Bottom),
-            MathF.Max(bounds.Left, bounds.Right),
-            MathF.Max(bounds.Top, bounds.Bottom));
+            MathF.Min(Compat.BoxLeft(bounds), Compat.BoxRight(bounds)),
+            MathF.Min(Compat.BoxTop(bounds), Compat.BoxBottom(bounds)),
+            MathF.Max(Compat.BoxLeft(bounds), Compat.BoxRight(bounds)),
+            MathF.Max(Compat.BoxTop(bounds), Compat.BoxBottom(bounds)));
     }
 
     private readonly struct RectF

@@ -81,7 +81,7 @@ internal static class QuickFlushDragPatch
             var ent = IoCManager.Resolve<IEntityManager>();
             var validDragDrop = AccessTools.Method(typeof(DragDropSystem), "ValidDragDrop");
             var interaction = ent.System<SharedInteractionSystem>();
-            foreach (var candidate in screen.GetClickableEntities(args.Coordinates))
+            foreach (var candidate in Compat.ClickableEntities(screen, args.Coordinates))
             {
                 if (candidate == draggedUid || validDragDrop == null)
                     continue;
@@ -227,7 +227,7 @@ internal sealed class QuickFlushOverlay : Overlay
 
                 pending.ButtonsPressed = true;
                 var window = GetWindow(bui);
-                pending.RestorePower = window?.Power.Pressed == true;
+                pending.RestorePower = Compat.ButtonPressed(window, "Power");
 
                 // Смотрим состояние именно отображённой кнопки и вызываем BUI-
                 // обработчик клика, как делает подписка реального UI.

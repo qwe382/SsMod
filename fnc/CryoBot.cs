@@ -482,7 +482,7 @@ public sealed class CryoBotOverlay : Overlay
     private void Publish(in OverlayDrawArgs args, EntityUid self, EntityUid target)
     {
         var targetWorld = _transform.GetWorldPosition(target);
-        var screen = args.Viewport.WorldToLocal(targetWorld) + args.ViewportBounds.TopLeft;
+        var screen = args.Viewport.WorldToLocal(targetWorld) + Compat.BoxTopLeft(args.ViewportBounds);
 
         MelBotOverlay.SetTarget(
             target,
@@ -492,12 +492,12 @@ public sealed class CryoBotOverlay : Overlay
             true);
 
         var handle = args.ScreenHandle;
-        var selfScreen = args.Viewport.WorldToLocal(_transform.GetWorldPosition(self)) + args.ViewportBounds.TopLeft;
+        var selfScreen = args.Viewport.WorldToLocal(_transform.GetWorldPosition(self)) + Compat.BoxTopLeft(args.ViewportBounds);
         handle.DrawLine(selfScreen, screen, new Color(1f, 0.25f, 0.25f, 0.6f));
 
         if (_pod is { } pod && _ent.HasComponent<TransformComponent>(pod))
         {
-            var podScreen = args.Viewport.WorldToLocal(_transform.GetWorldPosition(pod)) + args.ViewportBounds.TopLeft;
+            var podScreen = args.Viewport.WorldToLocal(_transform.GetWorldPosition(pod)) + Compat.BoxTopLeft(args.ViewportBounds);
             handle.DrawLine(selfScreen, podScreen, new Color(0.4f, 0.8f, 1f, 0.5f));
         }
     }
@@ -516,10 +516,18 @@ public static class CryoBot
             Pressed = IoCManager.Resolve<IOverlayManager>().HasOverlay<CryoBotOverlay>(),
             ToolTip = "Сам бьёт помеченных Make Enemy и чередует заходы в капсулу криогенного сна",
         };
-        check.OnToggled += args => Toggle(args.Pressed);
         box.AddChild(check);
 
         var grid = new GridContainer { Columns = 2 };
+
+        // Тайминги не прячем и не сворачиваем: пока бот выключен, они просто серые.
+        void Refresh() => Compat.SetGrayed(grid, !check.Pressed);
+
+        check.OnToggled += args =>
+        {
+            Toggle(args.Pressed);
+            Refresh();
+        };
 
         grid.AddChild(new Label { Text = "Бить, с", MinWidth = 110f });
         var combat = new FloatSpinBox(0.1f, 2) { Value = CryoBotOverlay.CombatTime, HorizontalExpand = true };
@@ -532,6 +540,8 @@ public static class CryoBot
         grid.AddChild(pod);
 
         box.AddChild(grid);
+
+        Refresh();
         return box;
     }
 
