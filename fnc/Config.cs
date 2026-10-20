@@ -102,6 +102,33 @@ public static class Config
             v => GunBot.SetAim(ParseBool(v)));
     }
 
+    // ---------- Конфиг по умолчанию ----------
+
+    // Всё основное включено. Зовётся на старте (Patches/StartupPatch) до того,
+    // как пользователь применит свой конфиг из буфера или файла: дефолт — это
+    // стартовое состояние, а не сохранённый профиль.
+    public static void ApplyDefaults()
+    {
+        EnsureRegistered();
+
+        // Боты: мелбот с автоударом, крио-бот, точки наводки gun-bot'а.
+        MelBot.Toggle(true);
+        MelBotOverlay.AutoAttack = true;
+        MelBotOverlay.AutoAttackLmb = true;
+        CryoBot.Toggle(true);
+        GunBot.SetAim(true);
+
+        // Твики.
+        CameraLock.Toggle(true);
+        NoEffects.Toggle(true);
+        QuickFlush.Toggle(true);
+
+        // ESP включён; категории и полоски в нём уже включены по умолчанию.
+        Esp.Toggle(true);
+
+        Console.WriteLine("[SsMod] конфиг по умолчанию: основные функции включены");
+    }
+
     private static void Add(string key, Func<string> get, Action<string> set)
     {
         Entries.Add(new Entry { Key = key, Get = get, Set = set });
