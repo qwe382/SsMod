@@ -23,9 +23,10 @@ namespace SsMod.Fnc;
 //
 // Галочка «Аимбот» только разрешает gun-bot'у работать: она не отмечена —
 // со стволом в руке не работает никто (мелбот выключен, gun-bot тоже), отмечена —
-// gun-bot рисует свои визуалы (те же линия и дуги, но синие). Сама наводка и
-// стрельба пока НЕ реализованы: сейчас это только визуал и признак того, кто
-// ведёт бой.
+// gun-bot рисует свои визуалы (те же линия и дуги, но синие) и точки наводки.
+// Наводка сейчас — только геометрия (см. fnc/PredictPoint.cs): красная точка
+// предикта и синяя точка ПИД, которая к ней тянется. Ничего не нажимает и не
+// стреляет.
 //
 // О смене режима пишем строкой в лог и всплывашкой у курсора — как «ХП при уроне»
 // всплывает над тем, кто получил урон (fnc/DamagePopup.cs).
@@ -219,12 +220,21 @@ public sealed class GunBotOverlay : Overlay
 
     private void DrawTarget(in OverlayDrawArgs args)
     {
-        // Оверлей висит, пока отмечен аимбот, но рисует только тогда, когда бой
-        // реально ведёт gun-bot: ствол в активной руке (см. GunBot.Active).
-        if (!GunBot.Active || args.Viewport.Eye is null)
+        // Оверлей висит, пока отмечен аимбот.
+        if (!GunBot.Aim || args.Viewport.Eye is null)
             return;
 
         if (_player.LocalEntity is not { Valid: true } self)
+            return;
+
+        // Точки наводки: красная — предикт, синяя — ПИД к ней. Рисуются всегда,
+        // независимо от оружия в руке и боевого режима: это только геометрия.
+        PredictPoint.Tick(_ent, self, CombatVisuals.CursorWorld(args, out _));
+        DrawPoints(args);
+
+        // Дальше — визуал роутера, и только когда бой реально ведёт gun-bot:
+        // ствол в активной руке и боевой режим.
+        if (!GunBot.Active)
             return;
 
         // Как и мелбот — только в боевом режиме.
@@ -249,6 +259,24 @@ public sealed class GunBotOverlay : Overlay
             CombatVisuals.ArcRadius(args, targetWorld),
             CombatVisuals.Ranged,
             _timing.RealTime);
+    }
+
+    // Красная — точка предикта (куда надо стрелять), синяя — точка ПИД, которая
+    // к ней тянется. Пока это единственное, что делает наводка.
+    private static void DrawPoints(in OverlayDrawArgs args)
+    {
+        if (!PredictPoint.HasTarget)
+            return;
+
+        var handle = args.ScreenHandle;
+        var red = CombatVisuals.Screen(args, PredictPoint.Red);
+        var blue = CombatVisuals.Screen(args, PredictPoint.Blue);
+
+        // Линия «синяя -> красная»: видно, куда и с какой ошибкой идёт регулятор.
+        CombatVisuals.ThickLine(handle, blue, red, 1f, new Color(0.6f, 0.75f, 1f, 0.35f));
+
+        handle.DrawCircle(red, 5f, new Color(1f, 0.15f, 0.15f, 0.95f), true);
+        handle.DrawCircle(blue, 4f, new Color(0.25f, 0.55f, 1f, 0.95f), true);
     }
 }
 
