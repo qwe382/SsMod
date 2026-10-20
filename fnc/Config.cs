@@ -111,11 +111,11 @@ public static class Config
     {
         EnsureRegistered();
 
-        // Боты: мелбот с автоударом, крио-бот, точки наводки gun-bot'а.
+        // Боты: мелбот с автоударом и точки наводки gun-bot'а.
+        // Крио-бот на старте не включаем: он бьёт сам и нужен редко.
         MelBot.Toggle(true);
         MelBotOverlay.AutoAttack = true;
         MelBotOverlay.AutoAttackLmb = true;
-        CryoBot.Toggle(true);
         GunBot.SetAim(true);
 
         // Твики.
