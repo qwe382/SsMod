@@ -56,6 +56,10 @@ public static class Config
         // Фрейм «Персонажи»: таймер таблицы.
         RegisterTree("characters", typeof(CharacterSettings), null);
 
+        // Аимбот (вкладка Gun-bot): поведение стрельбы. Включение самого аимбота
+        // живёт отдельным ключом gunbot.aim ниже — так же, как у мелбота.
+        RegisterTree("aimbot", typeof(AimBotSettings), null);
+
 
         Add("melbot",
             () => IoCManager.Resolve<IOverlayManager>().HasOverlay<MelBotOverlay>() ? "true" : "false",
