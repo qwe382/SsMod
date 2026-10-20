@@ -30,6 +30,9 @@ public static class StartupPatch
             if (!overlays.HasOverlay<RouterPopupOverlay>())
                 overlays.AddOverlay(new RouterPopupOverlay());
 
+            // «ХП при уроне» — всегда включено (галки в окне больше нет).
+            DamagePopup.Toggle(true);
+
             // Визуалы gun-bot'а (синие дуги) — только если аимбот отмечен в конфиге.
             if (GunBot.Aim)
                 GunBot.ToggleOverlay(true);

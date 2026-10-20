@@ -1,22 +1,16 @@
 using System.Numerics;
-using Content.Shared.Access.Components;
-using Content.Shared.Damage.Components;
 using Content.Shared.Mobs;
 using Content.Shared.Mobs.Components;
-using Content.Shared.Roles;
 using Robust.Client.GameObjects;
 using Robust.Client.Graphics;
 using Robust.Client.Player;
 using Robust.Client.ResourceManagement;
 using Robust.Client.UserInterface;
 using Robust.Client.UserInterface.Controls;
-using Robust.Shared.Containers;
 using Robust.Shared.GameObjects;
 using Robust.Shared.IoC;
-using Robust.Shared.Localization;
 using Robust.Shared.Maths;
 using Robust.Shared.Player;
-using Robust.Shared.Prototypes;
 using Robust.Shared.Timing;
 
 namespace SsMod.Fnc;
@@ -126,13 +120,6 @@ public sealed class EspOverlay : Overlay
     private readonly Font _font;
 
     private readonly List<EntityUid> _mobs = new();
-
-    // Профессия ищется по контейнерам цели, поэтому кэшируем её на секунду.
-    // Вместе с ней держим причину, по которой её не нашли: она рисуется серым
-    // вместо профессии, пока включена галочка «Профессия».
-    private readonly Dictionary<EntityUid, (string? Job, string Reason, TimeSpan At)> _jobCache = new();
-
-    private static readonly TimeSpan JobCacheTime = TimeSpan.FromSeconds(1);
 
     public EspOverlay()
     {
@@ -277,7 +264,7 @@ public sealed class EspOverlay : Overlay
 
         if (category.JobText)
         {
-            var job = JobOf(uid, out var reason);
+            var job = Jobs.Of(_ent, uid, _timing.CurTime, out var reason);
             var scale = MathF.Max(category.JobScale, 0.1f);
 
             // Профессия — строкой выше имени, чтобы её включение не сдвигало имя.
@@ -339,7 +326,8 @@ public sealed class EspOverlay : Overlay
         }
     }
 
-    // Текущее значение и доля для HP или стамины.
+    // Текущее значение и доля для HP или стамины. Считает Vitals — то же самое
+    // показывает фрейм «Персонажи», второй копии расчёта нет.
     private bool TryGetBar(EntityUid uid, bool health, out float ratio, out float value)
     {
         ratio = 1f;
@@ -347,167 +335,20 @@ public sealed class EspOverlay : Overlay
 
         if (health)
         {
-            // Компонент урона называется по-разному в разных версиях контента.
-            if (Compat.GetTotalDamage(_ent, uid) is not { } totalDamage)
+            if (!Vitals.Health(_ent, uid, out var hp, out var hpMax))
                 return false;
 
-            if (!_ent.TryGetComponent(uid, out MobThresholdsComponent? thresholds) ||
-                thresholds.Thresholds.Count == 0)
-            {
-                return false;
-            }
-
-            var max = 0f;
-            foreach (var key in thresholds.Thresholds.Keys)
-                max = MathF.Max(max, (float) key);
-
-            if (max <= 0f)
-                return false;
-
-            value = max - totalDamage;
-            ratio = Math.Clamp(value / max, 0f, 1f);
+            value = hp;
+            ratio = Math.Clamp(hp / hpMax, 0f, 1f);
             return true;
         }
 
-        if (!_ent.TryGetComponent(uid, out StaminaComponent? stamina))
+        if (!Vitals.Stamina(_ent, uid, out var stamina, out var staminaMax))
             return false;
 
-        if (stamina.CritThreshold <= 0f)
-            return false;
-
-        value = stamina.CritThreshold - stamina.StaminaDamage;
-        ratio = Math.Clamp(value / stamina.CritThreshold, 0f, 1f);
+        value = stamina;
+        ratio = Math.Clamp(stamina / staminaMax, 0f, 1f);
         return true;
-    }
-
-    // Профессию ищут по контейнерам цели, поэтому кэшируем её на секунду.
-    private string? JobOf(EntityUid uid, out string reason)
-    {
-        if (_jobCache.TryGetValue(uid, out var cached) && _timing.CurTime - cached.At < JobCacheTime)
-        {
-            reason = cached.Reason;
-            return cached.Job;
-        }
-
-        var job = ReadJob(uid, out reason);
-
-        if (_jobCache.Count > 512)
-            _jobCache.Clear();
-
-        _jobCache[uid] = (job, reason, _timing.CurTime);
-        return job;
-    }
-
-    // Профессия берётся с ID-карты цели: карточка лежит в слоте id (или внутри
-    // КПК), а содержимое контейнеров на клиенте есть. Сначала пробуем прототип
-    // профессии (у него уже локализованное имя), иначе локализуем JobTitle.
-    private string? ReadJob(EntityUid uid, out string reason)
-    {
-        reason = "нет карты";
-
-        if (!TryFindCard(uid, out var card))
-            return null;
-
-        if (!_ent.TryGetComponent(card, out IdCardComponent? idCard))
-        {
-            reason = "карта без компонента";
-            return null;
-        }
-
-        if (idCard.JobPrototype is { } jobId)
-        {
-            var protos = IoCManager.Resolve<IPrototypeManager>();
-
-            if (protos.TryIndex(jobId, out JobPrototype? job) && !string.IsNullOrWhiteSpace(job.LocalizedName))
-                return job.LocalizedName;
-
-            reason = $"прототип {jobId.Id} пуст";
-        }
-        else if (idCard.JobTitle is { } title)
-        {
-            var loc = IoCManager.Resolve<ILocalizationManager>();
-            return loc.TryGetString(title.Id, out var text) ? text : title.Id;
-        }
-        else
-        {
-            var proto = _ent.TryGetComponent(card, out MetaDataComponent? meta)
-                ? meta.EntityPrototype?.ID ?? meta.EntityName
-                : "?";
-
-            // В этих сборках профессия карточки лежит не в компоненте, а в самом
-            // прототипе карты (MedicalInternIDCard — это PresetIdCard с
-            // job: MedicalIntern), а PresetIdCard есть только на сервере, и в
-            // IdCardComponent клиента JobPrototype/JobTitle не приезжают.
-            // Поэтому профессию ищем по прототипу: у профессии id такой, что
-            // «<профессия>IDCard» — это прототип карты.
-            if (proto != "?" && JobByCardProto(proto) is { } derived)
-                return derived;
-
-            reason = $"карта ({proto}) без профессии";
-        }
-
-        return null;
-    }
-
-    // Прототипы карт, разложенные по профессиям, разбираем один раз за сессию.
-    private static readonly Dictionary<string, string?> CardProtoJobs = new();
-
-    private static string? JobByCardProto(string cardProto)
-    {
-        if (CardProtoJobs.TryGetValue(cardProto, out var cached))
-            return cached;
-
-        var protos = IoCManager.Resolve<IPrototypeManager>();
-        string? found = null;
-
-        foreach (var job in protos.EnumeratePrototypes<JobPrototype>())
-        {
-            if (!string.Equals(cardProto, job.ID + "IDCard", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            found = job.LocalizedName;
-            break;
-        }
-
-        CardProtoJobs[cardProto] = found;
-        return found;
-    }
-
-    // Карточка обычно в слоте id/КПК, а у КПК — во внутреннем контейнере,
-    // поэтому обходим контейнеры в ширину на пару уровней вглубь.
-    private bool TryFindCard(EntityUid root, out EntityUid card)
-    {
-        card = default;
-        var level = new List<EntityUid> { root };
-
-        for (var depth = 0; depth < 3 && level.Count > 0; depth++)
-        {
-            var next = new List<EntityUid>();
-
-            foreach (var current in level)
-            {
-                if (!_ent.TryGetComponent(current, out ContainerManagerComponent? containers))
-                    continue;
-
-                foreach (var (_, container) in containers.Containers)
-                {
-                    foreach (var child in container.ContainedEntities)
-                    {
-                        if (_ent.TryGetComponent(child, out IdCardComponent? _))
-                        {
-                            card = child;
-                            return true;
-                        }
-
-                        next.Add(child);
-                    }
-                }
-            }
-
-            level = next;
-        }
-
-        return false;
     }
 
     // Стрелка на краю экрана в сторону цели, которая за кадром.

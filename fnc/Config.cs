@@ -53,6 +53,10 @@ public static class Config
 
         RegisterTree("esp", typeof(EspSettings), null);
 
+        // Фрейм «Персонажи»: таймер таблицы.
+        RegisterTree("characters", typeof(CharacterSettings), null);
+
+
         Add("melbot",
             () => IoCManager.Resolve<IOverlayManager>().HasOverlay<MelBotOverlay>() ? "true" : "false",
             v => MelBot.Toggle(ParseBool(v)));

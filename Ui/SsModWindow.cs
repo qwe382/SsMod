@@ -1,6 +1,8 @@
+using System.Numerics;
 using Robust.Client.UserInterface;
 using Robust.Client.UserInterface.Controls;
 using Robust.Client.UserInterface.CustomControls;
+using Robust.Shared.Maths;
 using SsMod.Debug;
 using SsMod.Fnc;
 
@@ -16,6 +18,8 @@ public sealed class SsModWindow : DefaultWindow
     {
         ("Фрейм 1", BuildFrame1),
         ("ESP", Esp.BuildTab),
+        ("Персонажи", Characters.BuildTab),
+        ("Другое", MassScanner.BuildTab),
         ("Gun-bot", GunBot.BuildTab),
         ("Конфиг", Config.BuildTab),
         ("Дебаг", BuildDebug),
@@ -27,6 +31,11 @@ public sealed class SsModWindow : DefaultWindow
     public SsModWindow()
     {
         Title = "SsMod";
+
+        // Окно не должно ужиматься до нуля, когда в правой панели нет содержимого
+        // (например, фрейм не собрался): иначе от окна остаётся узкая полоска
+        // навигации и кажется, что «ничего не открывается».
+        MinSize = new Vector2(620f, 400f);
 
         // ВАЖНО: Contents у DefaultWindow — это Control-якорь (ContentsContainer
         // в XAML), а не контейнер. Всё оборачиваем в собственные контейнеры,
@@ -87,8 +96,30 @@ public sealed class SsModWindow : DefaultWindow
 
     private void OpenFrame(int index)
     {
+        var title = Categories[index].Title;
+
+        // Собираем фрейм ДО того, как убрать текущий: если сборка упадёт
+        // (баг в фрейме, данные ещё не готовы), пользователь увидит ошибку, а не
+        // пустую панель. Раньше RemoveAllChildren шёл первым, и одно исключение
+        // оставляло окно «мёртвым» до перезапуска игры.
+        Control built;
+
+        try
+        {
+            built = Categories[index].Build();
+        }
+        catch (Exception e)
+        {
+            Console.Error.WriteLine($"[SsMod] фрейм «{title}» не собрался: {e}");
+
+            var error = new BoxContainer { Orientation = BoxContainer.LayoutOrientation.Vertical };
+            error.AddChild(new Label { Text = $"Фрейм «{title}» не открылся" });
+            error.AddChild(new Label { Text = e.Message, FontColorOverride = new Color(1f, 0.45f, 0.45f) });
+            built = error;
+        }
+
         _frameHost.RemoveAllChildren();
-        _frameHost.AddChild(Categories[index].Build());
+        _frameHost.AddChild(built);
     }
 
     private static Control BuildFrame1()
@@ -121,10 +152,6 @@ public sealed class SsModWindow : DefaultWindow
         var noEffects = NoEffects.BuildCheckBox();
         noEffects.OnToggled += args => NoEffects.Toggle(args.Pressed);
         box.AddChild(noEffects);
-
-        var damagePopup = DamagePopup.BuildCheckBox();
-        damagePopup.OnToggled += args => DamagePopup.Toggle(args.Pressed);
-        box.AddChild(damagePopup);
 
         return box;
     }

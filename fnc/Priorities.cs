@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Robust.Shared.GameObjects;
 using Robust.Shared.IoC;
+using Robust.Shared.Maths;
 
 namespace SsMod.Fnc;
 
@@ -42,6 +43,15 @@ public static class Priorities
     public static bool IsFriend(EntityUid target) => Get(target) == Priority.Friend;
 
     public static bool IsEnemy(EntityUid target) => Get(target) == Priority.Enemy;
+
+    // Цвет метки. Им же красится имя в фрейме «Персонажи» и квадраты-кнопки
+    // «друг / враг / нейтрал» — чтобы цвет в таблице и в кнопке совпадал.
+    public static Color ColorOf(Priority priority) => priority switch
+    {
+        Priority.Friend => new Color(0.2f, 1f, 0.35f),
+        Priority.Enemy => new Color(1f, 0.25f, 0.25f),
+        _ => new Color(1f, 0.9f, 0.3f),
+    };
 
     // Сколько меток стоит сейчас (для окна мода).
     public static int Count => Labels.Count;

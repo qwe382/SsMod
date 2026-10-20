@@ -33,16 +33,10 @@ public static class OpenMenuPatch
                 return;
             }
 
-            _window ??= new SsModWindow();
+            _window = EnsureWindow();
 
             var btn = new Button { Text = "SsMod" };
-            btn.OnPressed += _ =>
-            {
-                if (_window.IsOpen)
-                    _window.Close();
-                else
-                    _window.OpenCentered();
-            };
+            btn.OnPressed += _ => Toggle();
 
             container.AddChild(btn);
             _btn = btn;
@@ -51,6 +45,39 @@ public static class OpenMenuPatch
         catch (Exception e)
         {
             Console.Error.WriteLine($"[SsMod] OpenMenu failed: {e}");
+        }
+    }
+
+    // Окно живёт в WindowRoot и переживает раунды, но после сброса UI (или
+    // исключения при сборке фрейма) может оказаться disposed. Тогда кнопка
+    // молча перестаёт открывать окно — поэтому пересоздаём его по требованию.
+    private static SsModWindow EnsureWindow()
+    {
+        if (_window is { Disposed: false })
+            return _window;
+
+        _window = null;
+        _window = new SsModWindow();
+        return _window;
+    }
+
+    private static void Toggle()
+    {
+        try
+        {
+            var window = EnsureWindow();
+
+            if (window.IsOpen)
+                window.Close();
+            else
+                window.OpenCentered();
+        }
+        catch (Exception e)
+        {
+            // Сломанное окно больше не переиспользуем: следующее нажатие
+            // соберёт новое.
+            Console.Error.WriteLine($"[SsMod] окно: {e}");
+            _window = null;
         }
     }
 

@@ -58,13 +58,16 @@ internal static class CombatVisuals
         => args.Viewport.WorldToLocal(world) + Compat.BoxTopLeft(args.ViewportBounds);
 
     // Радиус дуг в пикселях экрана. Берём у самой камеры: две соседние мировые
-    // точки на расстоянии ArcRadiusTiles дают в WorldToLocal экранное расстояние.
-    public static float ArcRadius(in OverlayDrawArgs args, Vector2 world)
+    // точки на расстоянии tiles тайлов дают в WorldToLocal экранное расстояние.
+    public static float Radius(in OverlayDrawArgs args, Vector2 world, float tiles)
     {
         var center = args.Viewport.WorldToLocal(world);
-        var edge = args.Viewport.WorldToLocal(world + new Vector2(ArcRadiusTiles, 0f));
+        var edge = args.Viewport.WorldToLocal(world + new Vector2(tiles, 0f));
         return (edge - center).Length();
     }
+
+    public static float ArcRadius(in OverlayDrawArgs args, Vector2 world)
+        => Radius(args, world, ArcRadiusTiles);
 
     // Мир под курсором. Через EyeManager.PixelToMap не берём: он идёт через
     // _uiManager.MouseGetControl и молча отдаёт мир в нуле, если курсор мимо
@@ -103,6 +106,22 @@ internal static class CombatVisuals
                 var a1 = start + span * (s + 1) / SegmentsPerArc;
                 ThickLine(handle, Point(center, a0, radius), Point(center, a1, radius), ArcWidth, color);
             }
+        }
+    }
+
+    // Полный круг вокруг цели — подсветка из фрейма «Персонажи» (там круг
+    // заметно больше дуг мелбота).
+    public static void Circle(DrawingHandleScreen handle, Vector2 center, float radius, float width, Color color,
+        int segments = 64)
+    {
+        var step = MathF.Tau / segments;
+        var from = Point(center, 0f, radius);
+
+        for (var i = 1; i <= segments; i++)
+        {
+            var to = Point(center, step * i, radius);
+            ThickLine(handle, from, to, width, color);
+            from = to;
         }
     }
 

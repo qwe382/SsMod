@@ -183,6 +183,21 @@ internal sealed class QuickFlushOverlay : Overlay
 
     protected override void FrameUpdate(FrameEventArgs args)
     {
+        // FrameUpdate оверлеев вызывается из OverlayManager без try/catch:
+        // исключение здесь завалило бы кадр игры целиком.
+        try
+        {
+            Step();
+        }
+        catch (Exception e)
+        {
+            Console.Error.WriteLine($"[SsMod] быстрый смыв: {e}");
+            _pending.Clear();
+        }
+    }
+
+    private void Step()
+    {
         var now = _timing.RealTime;
         for (var i = _pending.Count - 1; i >= 0; i--)
         {
