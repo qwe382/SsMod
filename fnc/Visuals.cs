@@ -33,6 +33,11 @@ public static class VisualSettings
     // и уже вблизи, и масштабируется вместе с зумом.
     public static bool SpreadEnabled = true;
     public static bool SpreadNoTarget = true;
+
+    // Как рисуем: дуги вокруг точки и/или конус (сектор) от стрелка.
+    public static bool SpreadArcs = true;
+    public static bool SpreadCone = true;
+
     public static float SpreadScale = 1f;
     public static float SpreadMinTiles = 0.12f;
     public static bool SpreadDegrees;
@@ -372,7 +377,8 @@ public static class Visuals
             Check("Показывать разброс", VisualSettings.SpreadEnabled, v => VisualSettings.SpreadEnabled = v),
             Check("Без цели — у курсора", VisualSettings.SpreadNoTarget, v => VisualSettings.SpreadNoTarget = v),
             Check("Линия до цели", VisualSettings.TraceLine, v => VisualSettings.TraceLine = v),
-            Check("Дуги", VisualSettings.TraceArcs, v => VisualSettings.TraceArcs = v),
+            Check("Дуги вокруг точки", VisualSettings.SpreadArcs, v => VisualSettings.SpreadArcs = v),
+            Check("Конус от стрелка", VisualSettings.SpreadCone, v => VisualSettings.SpreadCone = v),
             Check("Писать градусы", VisualSettings.SpreadDegrees, v => VisualSettings.SpreadDegrees = v),
             grid,
             new Label { Text = "Цвет градусов" },
