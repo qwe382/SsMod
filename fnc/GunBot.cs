@@ -347,12 +347,9 @@ public sealed class GunBotOverlay : Overlay
                 CombatVisuals.Ranged.Line);
         }
 
-        // Радиус дуг: либо конус разброса на дистанции до цели (умноженный и не
-        // меньше минимума), либо фиксированный — всё настраивается в «Визуалах».
-        var radiusTiles = VisualSettings.SpreadFromCone
-            ? MathF.Max(AimBot.ConeTiles * VisualSettings.SpreadScale, VisualSettings.SpreadMinTiles)
-            : VisualSettings.SpreadFixedTiles;
-
+        // Радиус дуг — конус разброса ровно на дистанции до цели: дальше цель,
+        // шире круг; ближе — уже. Множитель и минимум из настроек.
+        var radiusTiles = MathF.Max(AimBot.ConeTiles * VisualSettings.SpreadScale, VisualSettings.SpreadMinTiles);
         var radius = CombatVisuals.Radius(args, targetWorld, radiusTiles);
 
         if (VisualSettings.SpreadEnabled && VisualSettings.TraceArcs)
@@ -368,8 +365,8 @@ public sealed class GunBotOverlay : Overlay
         Compat.DrawText(handle, _font, pos, text, 1f, VisualSettings.SpreadTextColor);
     }
 
-    // Разброс без цели: дуга вокруг курсора. Радиус — конус на эталонной
-    // дистанции из настроек (или фиксированный), градусы рядом.
+    // Разброс без цели: дуга вокруг курсора. Радиус — конус на дистанции до
+    // курсора, поэтому меняется с расстоянием и масштабом (зумом).
     private void DrawSpreadAtCursor(in OverlayDrawArgs args, EntityUid self)
     {
         if (!VisualSettings.SpreadEnabled || !VisualSettings.SpreadNoTarget)
@@ -378,13 +375,16 @@ public sealed class GunBotOverlay : Overlay
         if (!AttackReach.TryGetGun(_ent, self, out var gunUid))
             return;
 
-        var (deg, tiles) = AimBot.SpreadAt(gunUid, VisualSettings.SpreadRefTiles);
-
-        var radiusTiles = VisualSettings.SpreadFromCone
-            ? MathF.Max(tiles * VisualSettings.SpreadScale, VisualSettings.SpreadMinTiles)
-            : VisualSettings.SpreadFixedTiles;
-
         var world = CombatVisuals.CursorWorld(args, out _);
+        var selfWorld = Transform.GetWorldPosition(self);
+
+        // Дистанция — до курсора, а не фиксированная: отводишь курсор дальше,
+        // круг разброса растёт, подводишь — сжимается.
+        var distance = (world - selfWorld).Length();
+        var (deg, tiles) = AimBot.SpreadAt(gunUid, distance);
+
+        var radiusTiles = MathF.Max(tiles * VisualSettings.SpreadScale, VisualSettings.SpreadMinTiles);
+
         var center = CombatVisuals.CursorScreen(args, out _) + new Vector2(0f, VisualSettings.SpreadCursorOffsetY);
         var radius = CombatVisuals.Radius(args, world, radiusTiles);
 

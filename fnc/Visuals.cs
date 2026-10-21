@@ -28,19 +28,15 @@ public static class VisualSettings
     public static Color AmmoEmptyColor = new(1f, 0.3f, 0.3f);
     public static float AmmoOffsetY = 0f;
 
-    // Как показывать разброс: дуги вокруг цели (gun-bot).
+    // Разброс (дуги). Радиус всегда считается по конусу на реальной дистанции:
+    // до цели, а без цели — до курсора. Поэтому он шире при стрельбе издалека
+    // и уже вблизи, и масштабируется вместе с зумом.
     public static bool SpreadEnabled = true;
-    public static bool SpreadFromCone = true;   // радиус = конус разброса на дистанции
-    public static float SpreadFixedTiles = 0.5f; // радиус, если конусом не считаем
+    public static bool SpreadNoTarget = true;
     public static float SpreadScale = 1f;
     public static float SpreadMinTiles = 0.12f;
     public static bool SpreadDegrees;
     public static Color SpreadTextColor = new(0.75f, 0.85f, 1f, 0.95f);
-
-    // Разброс без цели: рисуем у курсора, радиус считаем по конусу на эталонной
-    // дистанции — иначе, пока не наведёшься на кого-то, разброс не увидеть.
-    public static bool SpreadNoTarget = true;
-    public static float SpreadRefTiles = 8f;
     public static float SpreadCursorOffsetY = 0f;
 
     // Линия до цели и дуги вокруг неё (мелбот/gun-bot).
@@ -331,7 +327,6 @@ public static class Visuals
         var visuals = new BoxContainer { Orientation = BoxContainer.LayoutOrientation.Vertical };
         visuals.AddChild(AmmoSection());
         visuals.AddChild(SpreadSection());
-        visuals.AddChild(CombatLineSection());
         tabs.AddChild(visuals);
         TabContainer.SetTabTitle(visuals, "Визуалы");
 
@@ -363,21 +358,21 @@ public static class Visuals
             expanded: true);
     }
 
-    // Как отображается разброс вокруг цели: радиус от конуса или фиксированный,
-    // множитель, минимум и градусы числом.
+    // Разброс и линия боя: одна секция, без дублей.
     private static Control SpreadSection()
     {
         var grid = Grid(
             ("Множитель ×", Spin(VisualSettings.SpreadScale, 0.1f, 2, v => VisualSettings.SpreadScale = v)),
             ("Минимум, тайлов", Spin(VisualSettings.SpreadMinTiles, 0.05f, 2, v => VisualSettings.SpreadMinTiles = v)),
-            ("Фикс. радиус", Spin(VisualSettings.SpreadFixedTiles, 0.1f, 2, v => VisualSettings.SpreadFixedTiles = v)),
-            ("Дистанция без цели", Spin(VisualSettings.SpreadRefTiles, 0.5f, 1, v => VisualSettings.SpreadRefTiles = v)),
+            ("Линия, px", Spin(VisualSettings.TraceWidth, 1f, 0, v => VisualSettings.TraceWidth = v)),
+            ("Дуги, px", Spin(VisualSettings.TraceArcWidth, 1f, 0, v => VisualSettings.TraceArcWidth = v)),
             ("Сдвиг по Y", Spin(VisualSettings.SpreadCursorOffsetY, 2f, 0, v => VisualSettings.SpreadCursorOffsetY = v)));
 
         return Section("Разброс", Body(
             Check("Показывать разброс", VisualSettings.SpreadEnabled, v => VisualSettings.SpreadEnabled = v),
             Check("Без цели — у курсора", VisualSettings.SpreadNoTarget, v => VisualSettings.SpreadNoTarget = v),
-            Check("Радиус по конусу разброса", VisualSettings.SpreadFromCone, v => VisualSettings.SpreadFromCone = v),
+            Check("Линия до цели", VisualSettings.TraceLine, v => VisualSettings.TraceLine = v),
+            Check("Дуги", VisualSettings.TraceArcs, v => VisualSettings.TraceArcs = v),
             Check("Писать градусы", VisualSettings.SpreadDegrees, v => VisualSettings.SpreadDegrees = v),
             grid,
             new Label { Text = "Цвет градусов" },
@@ -401,18 +396,6 @@ public static class Visuals
             new Label { Text = "Цвет на нуле" },
             ColorControl(VisualSettings.AmmoEmptyColor, c => VisualSettings.AmmoEmptyColor = c)),
             expanded: true);
-    }
-
-    private static Control CombatLineSection()
-    {
-        var grid = Grid(
-            ("Линия, px", Spin(VisualSettings.TraceWidth, 1f, 0, v => VisualSettings.TraceWidth = v)),
-            ("Дуги, px", Spin(VisualSettings.TraceArcWidth, 1f, 0, v => VisualSettings.TraceArcWidth = v)));
-
-        return Section("Линия и дуги боя", Body(
-            Check("Линия до цели", VisualSettings.TraceLine, v => VisualSettings.TraceLine = v),
-            Check("Дуги вокруг цели", VisualSettings.TraceArcs, v => VisualSettings.TraceArcs = v),
-            grid));
     }
 
     private static Collapsible Section(string title, CollapsibleBody body, bool expanded = false)
