@@ -41,6 +41,9 @@ internal static class Targeting
 
     // Ближайший персонаж к точке мира (курсор) в радиусе radius тайлов.
     // 1 тайл = 1 единица мира, зумы тут ни при чём.
+    //
+    // Своих не отдаём никогда, даже если курсор стоит ровно на них: Make Friend
+    // означает «не атаковать», а не только «не выбирать автоцелью».
     public static EntityUid? UnderPoint(IEntityManager ent, EntityUid self, Vector2 world, float radius)
     {
         var transform = ent.System<SharedTransformSystem>();
@@ -50,6 +53,9 @@ internal static class Targeting
         foreach (var uid in Alive(ent))
         {
             if (uid == self || !Usable(ent, uid))
+                continue;
+
+            if (Priorities.Get(uid) == Priority.Friend)
                 continue;
 
             var dist = (transform.GetWorldPosition(uid) - world).LengthSquared();

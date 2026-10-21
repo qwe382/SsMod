@@ -45,15 +45,19 @@ public static class GunBot
     {
         Aim = on;
 
-        // Одна кнопка на всё: стрельба, удержание кнопки огня (для
-        // неавтоматического оружия — автоклики), боевой режим и допуск разброса.
-        AimBotSettings.AutoFire = on;
-        AimBotSettings.AccuracyGate = on;
-        AimBotSettings.AutoCombat = on;
-
         // Оверлей с точками висит всегда: галочка только разрешает стрельбу.
         // Иначе точки пропадали бы вместе с выключенным аимботом.
         ToggleOverlay(true);
+    }
+
+    // Отдельная галочка «Авто-стрельба»: удержание кнопки огня, автоклики на
+    // неавтоматическом оружии, боевой режим и допуск разброса — всё в ней одной.
+    // Наводка от неё не зависит: точки рисуются и с выключенной авто-стрельбой.
+    public static void SetAutoFire(bool on)
+    {
+        AimBotSettings.AutoFire = on;
+        AimBotSettings.AccuracyGate = on;
+        AimBotSettings.AutoCombat = on;
     }
 
     // Оверлей визуалов gun-bot'а.
@@ -171,6 +175,22 @@ public static class GunBot
             Console.WriteLine($"[SsMod] gun-bot: аимбот = {args.Pressed}");
         };
 
+        // Авто-стрельба: удержание кнопки огня, автоклики на неавтоматическом
+        // оружии, боевой режим и допуск разброса — одной галочкой. Наводка от
+        // неё не зависит и работает отдельно.
+        var autoFire = new CheckBox
+        {
+            Text = "Авто-стрельба (удержание / автоклик)",
+            Pressed = AimBotSettings.AutoFire,
+            ToolTip = "Бот сам держит огонь, пока цель в красной точке. Полуавтомат — " +
+                      "автокликами. Плюс боевой режим и допуск разброса 1 клетка",
+        };
+        autoFire.OnToggled += args =>
+        {
+            SetAutoFire(args.Pressed);
+            Console.WriteLine($"[SsMod] gun-bot: авто-стрельба = {args.Pressed}");
+        };
+
         var status = new Label { Text = "" };
 
         // Снять все метки приоритетов. Нужна кнопка, а не только ПКМ-пункты: метки
@@ -207,6 +227,7 @@ public static class GunBot
         rack.OnToggled += args => AimBotSettings.AutoRack = args.Pressed;
 
         box.AddChild(aim);
+        box.AddChild(autoFire);
         box.AddChild(reload);
         box.AddChild(rack);
         box.AddChild(status);

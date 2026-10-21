@@ -78,12 +78,13 @@ namespace SsMod.Fnc;
 public static class AimBotSettings
 {
     // Бот стреляет сам: держит кнопку огня, когда цель в красной точке.
-    // Включается той же галочкой, что и наводка (одна кнопка на всё).
-    public static bool AutoFire = true;
+    // Включается отдельной галочкой «Авто-стрельба», наводка от неё не зависит.
+    public static bool AutoFire = false;
 
     // Не стрелять, пока конус разброса шире допуска: ждём, пока CurrentAngle
-    // затухнет (AngleDecay), вместо очереди в молоко.
-    public static bool AccuracyGate = true;
+    // затухнет (AngleDecay), вместо очереди в молоко. Включается вместе с
+    // авто-стрельбой — это её часть, отдельной галочки нет.
+    public static bool AccuracyGate = false;
 
     // Допуск точности в тайлах (клетках): стреляем, если конус разброса на
     // дистанции до цели не шире клетки.
@@ -281,6 +282,15 @@ public static class AimBot
             return;
         }
 
+        // Приоритет — последняя инстанция: даже если цель как-то просочилась
+        // в лок (например, друг был помечен уже после захвата), по своим не
+        // стреляем и не целимся.
+        if (Priorities.Get(uid) == Priority.Friend)
+        {
+            Status = "цель — союзник";
+            return;
+        }
+
         Target = uid;
         Engaged = true;
 
@@ -312,7 +322,10 @@ public static class AimBot
         InCombat = combat;
 
         // ---- боевой режим и две руки: без них сервер просто не выстрелит
-        if (!combat && AimBotSettings.AutoCombat)
+        // В боевой режим входим только когда собираемся стрелять: по авто-стрельбе
+        // или по зажатой игроком кнопке огня. Иначе бот щёлкал бы режимом на
+        // каждом наведении курсора.
+        if (!combat && AimBotSettings.AutoCombat && (AimBotSettings.AutoFire || KeyDown(FireKey)))
             GunApi.TryCombatMode(ent, self);
 
         if (RequiresWield && !Wielded)

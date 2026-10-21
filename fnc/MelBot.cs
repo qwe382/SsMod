@@ -200,7 +200,8 @@ public sealed class MelBotOverlay : Overlay
             }
             else if (held)
             {
-                if (_lockTarget is { } locked && _ent.EntityExists(locked) && _ent.HasComponent<TransformComponent>(locked))
+                if (_lockTarget is { } locked && !Priorities.IsFriend(locked)
+                    && _ent.EntityExists(locked) && _ent.HasComponent<TransformComponent>(locked))
                 {
                     activeUid = locked;
                 }

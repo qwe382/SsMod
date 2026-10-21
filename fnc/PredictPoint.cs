@@ -309,6 +309,10 @@ internal static class PredictPoint
         if (!Targeting.Usable(ent, uid))
             return false;
 
+        // Пометили другом, пока цель была в локе, — лок снимаем сразу.
+        if (Priorities.Get(uid) == Priority.Friend)
+            return false;
+
         if (!ent.TryGetComponent(uid, out MobStateComponent? mob) || mob.CurrentState != MobState.Alive)
             return false;
 
