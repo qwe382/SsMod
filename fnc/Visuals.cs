@@ -1,6 +1,7 @@
 using System.Numerics;
 using System.Text;
 using Content.Shared.Hands.Components;
+using Content.Shared.Mobs.Components;
 using Content.Shared.Projectiles;
 using Robust.Client.Graphics;
 using Robust.Client.Player;
@@ -33,12 +34,14 @@ public static class VisualSettings
     public static float TraceWidth = 2f;
     public static float TraceArcWidth = 12f;
 
-    // Трейсы: линии от себя до каждого персонажа, цвет по приоритету.
+    // Трейсы пуль: след снаряда. Цвет — по стрелявшему.
     public static bool Traces = true;
     public static float TracesWidth = 1.5f;
+    public static float TracesLifetime = 0.35f; // сколько секунд висит след
     public static Color TracesFriend = new(0.3f, 1f, 0.4f, 0.7f);
     public static Color TracesNeutral = new(0.35f, 0.6f, 1f, 0.6f);
     public static Color TracesEnemy = new(1f, 0.3f, 0.3f, 0.75f);
+    public static Color TracesUnknown = new(1f, 0.2f, 0.2f, 0.8f); // турели и прочее без владельца
 }
 
 // Дуга у курсора: сколько патронов осталось в стволе, и рядом текст
@@ -162,9 +165,33 @@ public sealed class TracesOverlay : Overlay
     // а при телепорте/лаге получилась бы линия через полкарты.
     private const float MaxTrailTiles = 4f;
 
+    // Больше этого числа отрезков не держим: очередь боя с дробовиками иначе
+    // раздувала бы список до бесконечности.
+    private const int MaxSegments = 4096;
+
     // Прошлая позиция снаряда. Записи без обновления дольше секунды выкидываем:
     // снаряд уже улетел или удалился.
     private readonly Dictionary<EntityUid, (Vector2 Pos, TimeSpan At)> _trail = new();
+
+    // Отрезки следа со временем жизни: снаряд умирает сразу после попадания,
+    // а след должен ещё повисеть столько, сколько задано в настройках.
+    private readonly List<Segment> _segments = new();
+
+    private readonly struct Segment
+    {
+        public readonly Vector2 From;
+        public readonly Vector2 To;
+        public readonly Color Color;
+        public readonly TimeSpan Until;
+
+        public Segment(Vector2 from, Vector2 to, Color color, TimeSpan until)
+        {
+            From = from;
+            To = to;
+            Color = color;
+            Until = until;
+        }
+    }
 
     protected override void Draw(in OverlayDrawArgs args)
     {
@@ -197,6 +224,15 @@ public sealed class TracesOverlay : Overlay
         var now = IoCManager.Resolve<IGameTiming>().CurTime;
         var handle = args.ScreenHandle;
         var width = MathF.Max(VisualSettings.TracesWidth, 0.5f);
+        var lifetime = TimeSpan.FromSeconds(Math.Clamp(VisualSettings.TracesLifetime, 0.05f, 5f));
+
+        // Просроченные следы убираем до обхода: снаряд давно умер, а след уже
+        // должен был погаснуть.
+        for (var i = _segments.Count - 1; i >= 0; i--)
+        {
+            if (_segments[i].Until <= now)
+                _segments.RemoveAt(i);
+        }
 
         // Чистим хвосты до обхода, чтобы словарь не рос вместе с числом снарядов.
         if (_trail.Count > 64)
@@ -219,7 +255,7 @@ public sealed class TracesOverlay : Overlay
             _trail[uid] = (pos, now);
 
             // Первый кадр снаряда: следа ещё нет, но направление полёта уже
-            // известно — рисуем короткий отрезок назад по углу.
+            // известно — добавляем короткий отрезок назад по углу.
             var delta = had ? pos - last.Pos : -projectile.Angle.ToVec() * 0.75f;
             var length = delta.Length();
             if (length < 0.05f)
@@ -228,19 +264,34 @@ public sealed class TracesOverlay : Overlay
             if (length > MaxTrailTiles)
                 delta = delta / length * MaxTrailTiles;
 
-            var from = CombatVisuals.Screen(args, pos - delta);
-            var to = CombatVisuals.Screen(args, pos);
-            CombatVisuals.ThickLine(handle, from, to, width, ColorOf(projectile, self));
+            _segments.Add(new Segment(pos - delta, pos, ColorOf(ent, projectile, self), now + lifetime));
+        }
+
+        // Переполнение: старые отрезки вперёд, их и выбрасываем.
+        if (_segments.Count > MaxSegments)
+            _segments.RemoveRange(0, _segments.Count - MaxSegments);
+
+        foreach (var segment in _segments)
+        {
+            CombatVisuals.ThickLine(handle,
+                CombatVisuals.Screen(args, segment.From),
+                CombatVisuals.Screen(args, segment.To),
+                width, segment.Color);
         }
     }
 
-    private static Color ColorOf(ProjectileComponent projectile, EntityUid self)
+    private static Color ColorOf(IEntityManager ent, ProjectileComponent projectile, EntityUid self)
     {
+        // Стрелявшего нет (ловушки, турели без владельца) — неизвестный, красный.
         if (projectile.Shooter is not { } shooter)
-            return VisualSettings.TracesNeutral;
+            return VisualSettings.TracesUnknown;
 
         if (shooter == self)
             return VisualSettings.TracesFriend;
+
+        // Не персонаж (турель и прочая техника) — тоже неизвестный.
+        if (!ent.HasComponent<MobStateComponent>(shooter))
+            return VisualSettings.TracesUnknown;
 
         return Priorities.Get(shooter) switch
         {
@@ -251,8 +302,7 @@ public sealed class TracesOverlay : Overlay
     }
 }
 
-// Одна вкладка «Gun-bot», а внутри — свои вкладки: настройки бота, визуалы
-// (дуга патронов, линия/дуги боя) и трейсы.
+// Фрейм «Визуалы»: свои вкладки — gun-bot, дуга патронов и трейсы пуль.
 public static class Visuals
 {
     public static Control BuildTab()
@@ -261,13 +311,13 @@ public static class Visuals
 
         var bot = GunBot.BuildTab();
         tabs.AddChild(bot);
-        TabContainer.SetTabTitle(bot, "Настройки");
+        TabContainer.SetTabTitle(bot, "Gun-bot");
 
         var visuals = new BoxContainer { Orientation = BoxContainer.LayoutOrientation.Vertical };
         visuals.AddChild(AmmoSection());
         visuals.AddChild(CombatLineSection());
         tabs.AddChild(visuals);
-        TabContainer.SetTabTitle(visuals, "Визуалы");
+        TabContainer.SetTabTitle(visuals, "Дуга патронов");
 
         var traces = new BoxContainer { Orientation = BoxContainer.LayoutOrientation.Vertical };
         traces.AddChild(TracesSection());
@@ -280,17 +330,20 @@ public static class Visuals
     private static Control TracesSection()
     {
         var grid = Grid(
-            ("Толщина, px", Spin(VisualSettings.TracesWidth, 0.5f, 1, v => VisualSettings.TracesWidth = v)));
+            ("Толщина, px", Spin(VisualSettings.TracesWidth, 0.5f, 1, v => VisualSettings.TracesWidth = v)),
+            ("Длительность, с", Spin(VisualSettings.TracesLifetime, 0.05f, 2, v => VisualSettings.TracesLifetime = v)));
 
         return Section("Трейсы пуль", Body(
             Check("Показывать трейсы", VisualSettings.Traces, v => VisualSettings.Traces = v),
             grid,
-            new Label { Text = "Друзья" },
+            new Label { Text = "Свои и друзья" },
             ColorControl(VisualSettings.TracesFriend, c => VisualSettings.TracesFriend = c),
             new Label { Text = "Нейтралы" },
             ColorControl(VisualSettings.TracesNeutral, c => VisualSettings.TracesNeutral = c),
             new Label { Text = "Враги" },
-            ColorControl(VisualSettings.TracesEnemy, c => VisualSettings.TracesEnemy = c)),
+            ColorControl(VisualSettings.TracesEnemy, c => VisualSettings.TracesEnemy = c),
+            new Label { Text = "Неизвестные (турели)" },
+            ColorControl(VisualSettings.TracesUnknown, c => VisualSettings.TracesUnknown = c)),
             expanded: true);
     }
 
