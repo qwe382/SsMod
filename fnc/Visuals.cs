@@ -1,6 +1,7 @@
 using System.Numerics;
 using System.Text;
 using Content.Shared.Hands.Components;
+using Content.Shared.Projectiles;
 using Robust.Client.Graphics;
 using Robust.Client.Player;
 using Robust.Client.ResourceManagement;
@@ -153,10 +154,18 @@ public sealed class AmmoOverlay : Overlay
     }
 }
 
-// Трейсы: линия от себя до каждого персонажа на экране. Цвет — по приоритету:
-// друг зелёный, нейтрал синий, враг красный.
+// Трейсы пуль: след снаряда от его прошлой позиции до текущей. Цвет — по
+// стрелявшему: свои и друзья зелёные, нейтралы синие, враги красные.
 public sealed class TracesOverlay : Overlay
 {
+    // Длиннее этого след не тянем: снаряд всё равно за кадр столько не летит,
+    // а при телепорте/лаге получилась бы линия через полкарты.
+    private const float MaxTrailTiles = 4f;
+
+    // Прошлая позиция снаряда. Записи без обновления дольше секунды выкидываем:
+    // снаряд уже улетел или удалился.
+    private readonly Dictionary<EntityUid, (Vector2 Pos, TimeSpan At)> _trail = new();
+
     protected override void Draw(in OverlayDrawArgs args)
     {
         if (!VisualSettings.Traces)
@@ -173,44 +182,67 @@ public sealed class TracesOverlay : Overlay
         }
     }
 
-    private static void DrawTraces(in OverlayDrawArgs args)
+    private void DrawTraces(in OverlayDrawArgs args)
     {
         var ent = IoCManager.Resolve<IEntityManager>();
 
         if (IoCManager.Resolve<IPlayerManager>().LocalEntity is not { Valid: true } self)
             return;
 
-        if (args.Viewport.Eye is null)
+        if (args.Viewport.Eye is not { } eye)
             return;
 
         var transform = ent.System<SharedTransformSystem>();
-        var map = transform.GetMapId(self);
-        var from = CombatVisuals.Screen(args, transform.GetWorldPosition(self));
-
-        // Всё рисуем в координатах DrawingHandle, поэтому видимая область — от
-        // нуля до размера вьюпорта.
-        var visible = new UIBox2(Vector2.Zero, (Vector2) args.ViewportBounds.Size);
+        var map = eye.Position.MapId;
+        var now = IoCManager.Resolve<IGameTiming>().CurTime;
         var handle = args.ScreenHandle;
         var width = MathF.Max(VisualSettings.TracesWidth, 0.5f);
 
-        foreach (var uid in Targeting.Alive(ent))
+        // Чистим хвосты до обхода, чтобы словарь не рос вместе с числом снарядов.
+        if (_trail.Count > 64)
         {
-            if (uid == self || transform.GetMapId(uid) != map)
+            foreach (var (uid, value) in _trail.ToList())
+            {
+                if (now - value.At > TimeSpan.FromSeconds(1))
+                    _trail.Remove(uid);
+            }
+        }
+
+        var query = ent.AllEntityQueryEnumerator<ProjectileComponent, TransformComponent>();
+        while (query.MoveNext(out var uid, out var projectile, out _))
+        {
+            if (transform.GetMapId(uid) != map)
                 continue;
 
-            var to = CombatVisuals.Screen(args, transform.GetWorldPosition(uid));
+            var pos = transform.GetWorldPosition(uid);
+            var had = _trail.TryGetValue(uid, out var last);
+            _trail[uid] = (pos, now);
 
-            // За экран не тянем: линия через всю карту только мешает.
-            if (!visible.Contains(to))
+            // Первый кадр снаряда: следа ещё нет, но направление полёта уже
+            // известно — рисуем короткий отрезок назад по углу.
+            var delta = had ? pos - last.Pos : -projectile.Angle.ToVec() * 0.75f;
+            var length = delta.Length();
+            if (length < 0.05f)
                 continue;
 
-            CombatVisuals.ThickLine(handle, from, to, width, ColorOf(uid));
+            if (length > MaxTrailTiles)
+                delta = delta / length * MaxTrailTiles;
+
+            var from = CombatVisuals.Screen(args, pos - delta);
+            var to = CombatVisuals.Screen(args, pos);
+            CombatVisuals.ThickLine(handle, from, to, width, ColorOf(projectile, self));
         }
     }
 
-    private static Color ColorOf(EntityUid uid)
+    private static Color ColorOf(ProjectileComponent projectile, EntityUid self)
     {
-        return Priorities.Get(uid) switch
+        if (projectile.Shooter is not { } shooter)
+            return VisualSettings.TracesNeutral;
+
+        if (shooter == self)
+            return VisualSettings.TracesFriend;
+
+        return Priorities.Get(shooter) switch
         {
             Priority.Friend => VisualSettings.TracesFriend,
             Priority.Enemy => VisualSettings.TracesEnemy,
@@ -250,7 +282,7 @@ public static class Visuals
         var grid = Grid(
             ("Толщина, px", Spin(VisualSettings.TracesWidth, 0.5f, 1, v => VisualSettings.TracesWidth = v)));
 
-        return Section("Трейсы до персонажей", Body(
+        return Section("Трейсы пуль", Body(
             Check("Показывать трейсы", VisualSettings.Traces, v => VisualSettings.Traces = v),
             grid,
             new Label { Text = "Друзья" },
