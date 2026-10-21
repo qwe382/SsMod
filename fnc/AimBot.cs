@@ -184,12 +184,16 @@ public static class AimBot
         }
     }
 
-    // Экранная точка прицела (viewport-пиксели + левый верхний угол вьюпорта).
-    // Её подставляет патч MouseScreenPosition, поэтому свойство публичное.
+    // Экранная точка прицела в АБСОЛЮТНЫХ пикселях окна: её подставляет патч
+    // MouseScreenPosition, поэтому масштаб и положение вьюпорта должны быть уже
+    // учтены (см. CombatVisuals.Absolute). Свойство публичное — его читает патч.
     public static Vector2 ScreenAim
     {
         get
         {
+            if (CombatVisuals.MainViewport is { } viewport)
+                return viewport.WorldToScreen(AimWorld);
+
             if (_viewport is null)
                 return default;
 
@@ -200,10 +204,14 @@ public static class AimBot
     // Мир под настоящим курсором (InGunUpdate должен быть false).
     private static Vector2 CursorWorld()
     {
+        var mouse = IoCManager.Resolve<IInputManager>().MouseScreenPosition;
+
+        if (CombatVisuals.MainViewport is { } viewport)
+            return viewport.PixelToMap(mouse.Position).Position;
+
         if (_viewport is null)
             return default;
 
-        var mouse = IoCManager.Resolve<IInputManager>().MouseScreenPosition;
         var local = mouse.Position - Compat.BoxTopLeft(_bounds);
         return _viewport.LocalToWorld(local).Position;
     }

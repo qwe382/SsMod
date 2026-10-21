@@ -240,13 +240,17 @@ public sealed class MelBotOverlay : Overlay
             // WorldToLocal того же вьюпорта — он в тех же координатах, что и
             // LocalToWorld, из которого получена mouseWorld. Саму линию и дуги
             // рисует CombatVisuals: этот же визуал, но синим, рисует gun-bot.
-            var targetScreen = CombatVisuals.Screen(args, targetWorld);
+            // Точка цели в абсолютных экранных пикселях: именно её подставляет
+            // патч MouseScreenPosition, поэтому масштаб и положение вьюпорта
+            // должны быть уже учтены (CombatVisuals.Absolute). Для рисования
+            // берём ту же точку, переведённую в координаты DrawingHandle.
+            var targetScreen = CombatVisuals.Absolute(args, targetWorld);
             CurrentTargetMapCoordinates = Transform.GetMapCoordinates(target);
             CurrentTargetScreenPosition = targetScreen;
 
             CombatVisuals.Draw(args.ScreenHandle,
                 CombatVisuals.Screen(args, selfWorld),
-                targetScreen,
+                CombatVisuals.Screen(args, targetWorld),
                 CombatVisuals.ArcRadius(args, targetWorld),
                 CombatVisuals.Melee,
                 _timing.RealTime);

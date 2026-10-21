@@ -1,6 +1,7 @@
 using System.Numerics;
 using Robust.Client.Graphics;
 using Robust.Client.Input;
+using Robust.Client.UserInterface.CustomControls;
 using Robust.Shared.IoC;
 using Robust.Shared.Map;
 using Robust.Shared.Maths;
@@ -52,17 +53,50 @@ internal static class CombatVisuals
         DrawArcs(handle, toScreen, arcRadius, style.Arc, now);
     }
 
-    // Экранная точка через ту же согласованную пару вьюпорта, что и LocalToWorld
-    // (см. пояснения в MelBot): WorldToLocal + левый верхний угол вьюпорта.
-    public static Vector2 Screen(in OverlayDrawArgs args, Vector2 world)
-        => args.Viewport.WorldToLocal(world) + Compat.BoxTopLeft(args.ViewportBounds);
+    // Абсолютные экранные пиксели (то, что ждут ScreenCoordinates и патчи мыши).
+    // Считаем через IViewportControl главного вьюпорта: его WorldToScreen уже
+    // учитывает и масштаб вьюпорта (ViewportContainer делит на _viewportResolution),
+    // и GlobalPixelPosition. Поэтому точки не зависят ни от разрешения окна, ни
+    // от UI-масштаба. Тот же API использует Highlight.
+    public static Vector2 Absolute(in OverlayDrawArgs args, Vector2 world)
+    {
+        if (MainViewport is { } viewport)
+            return viewport.WorldToScreen(world);
 
-    // Радиус дуг в пикселях экрана. Берём у самой камеры: две соседние мировые
-    // точки на расстоянии tiles тайлов дают в WorldToLocal экранное расстояние.
+        // Запасной путь, если вьюпорта ещё нет: та же пара, что и раньше.
+        return args.Viewport.WorldToLocal(world) + Compat.BoxTopLeft(args.ViewportBounds);
+    }
+
+    // Точка для рисования: координаты текущего DrawingHandle.
+    public static Vector2 Screen(in OverlayDrawArgs args, Vector2 world)
+        => ToHandle(args, Absolute(args, world));
+
+    private static IEyeManager? _eye;
+
+    internal static IViewportControl? MainViewport
+    {
+        get
+        {
+            _eye ??= IoCManager.Resolve<IEyeManager>();
+            return _eye.MainViewport;
+        }
+    }
+
+    // Абсолютные экранные пиксели -> координаты текущего DrawingHandle.
+    // Оверлеи рисуются в handle, уже сдвинутом на GlobalPixelPosition вьюпорта,
+    // поэтому подставлять абсолютные пиксели напрямую нельзя: будет двойной сдвиг.
+    private static Vector2 ToHandle(in OverlayDrawArgs args, Vector2 screen)
+    {
+        var xform = args.ScreenHandle.GetTransform();
+        return Matrix3x2.Invert(xform, out var inv) ? Vector2.Transform(screen, inv) : screen;
+    }
+
+    // Радиус дуг в пикселях экрана. Берём у самого вьюпорта: две соседние
+    // мировые точки на расстоянии tiles тайлов дают экранное расстояние.
     public static float Radius(in OverlayDrawArgs args, Vector2 world, float tiles)
     {
-        var center = args.Viewport.WorldToLocal(world);
-        var edge = args.Viewport.WorldToLocal(world + new Vector2(tiles, 0f));
+        var center = Screen(args, world);
+        var edge = Screen(args, world + new Vector2(tiles, 0f));
         return (edge - center).Length();
     }
 
@@ -71,11 +105,15 @@ internal static class CombatVisuals
 
     // Мир под курсором. Через EyeManager.PixelToMap не берём: он идёт через
     // _uiManager.MouseGetControl и молча отдаёт мир в нуле, если курсор мимо
-    // вьюпорта; WorldToScreen не годится по масштабу (ViewportContainer делит
-    // ещё и на _viewportResolution).
+    // вьюпорта. Здесь берём вьюпорт напрямую — он компенсирует и масштаб
+    // вьюпорта, и его положение в окне.
     public static Vector2 CursorWorld(in OverlayDrawArgs args, out ScreenCoordinates screenMouse)
     {
         screenMouse = IoCManager.Resolve<IInputManager>().MouseScreenPosition;
+
+        if (MainViewport is { } viewport)
+            return viewport.PixelToMap(screenMouse.Position).Position;
+
         var localMouse = screenMouse.Position - Compat.BoxTopLeft(args.ViewportBounds);
         return args.Viewport.LocalToWorld(localMouse).Position;
     }

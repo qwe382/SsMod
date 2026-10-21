@@ -445,7 +445,7 @@ public sealed class CryoBotOverlay : Overlay
     private void Publish(in OverlayDrawArgs args, EntityUid self, EntityUid target)
     {
         var targetWorld = _transform.GetWorldPosition(target);
-        var screen = args.Viewport.WorldToLocal(targetWorld) + Compat.BoxTopLeft(args.ViewportBounds);
+        var screen = CombatVisuals.Absolute(args, targetWorld);
 
         MelBotOverlay.SetTarget(
             target,
@@ -455,12 +455,12 @@ public sealed class CryoBotOverlay : Overlay
             true);
 
         var handle = args.ScreenHandle;
-        var selfScreen = args.Viewport.WorldToLocal(_transform.GetWorldPosition(self)) + Compat.BoxTopLeft(args.ViewportBounds);
-        handle.DrawLine(selfScreen, screen, new Color(1f, 0.25f, 0.25f, 0.6f));
+        var selfScreen = CombatVisuals.Screen(args, _transform.GetWorldPosition(self));
+        handle.DrawLine(selfScreen, CombatVisuals.Screen(args, targetWorld), new Color(1f, 0.25f, 0.25f, 0.6f));
 
         if (_pod is { } pod && _ent.HasComponent<TransformComponent>(pod))
         {
-            var podScreen = args.Viewport.WorldToLocal(_transform.GetWorldPosition(pod)) + Compat.BoxTopLeft(args.ViewportBounds);
+            var podScreen = CombatVisuals.Screen(args, _transform.GetWorldPosition(pod));
             handle.DrawLine(selfScreen, podScreen, new Color(0.4f, 0.8f, 1f, 0.5f));
         }
     }

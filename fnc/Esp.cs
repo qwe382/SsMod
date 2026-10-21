@@ -154,11 +154,14 @@ public sealed class EspOverlay : Overlay
             return;
 
         var mapId = eye.Position.MapId;
-        var origin = Compat.BoxTopLeft(args.ViewportBounds);
         var selfPos = Transform.GetWorldPosition(self);
         var handle = args.ScreenHandle;
 
-        var vp = ViewRect(args.ViewportBounds);
+        // Рисуем в координатах DrawingHandle, поэтому видимая область — от нуля
+        // до размера вьюпорта (см. CombatVisuals.Screen: он же переводит мировые
+        // точки в эти координаты, учитывая масштаб и положение вьюпорта).
+        var boundsSize = (Vector2) args.ViewportBounds.Size;
+        var vp = new RectF(0f, 0f, boundsSize.X, boundsSize.Y);
 
         _mobs.Clear();
         var query = _ent.AllEntityQueryEnumerator<MobStateComponent, TransformComponent>();
@@ -194,7 +197,7 @@ public sealed class EspOverlay : Overlay
             if (!category.Enabled)
                 continue;
 
-            var screen = args.Viewport.WorldToLocal(world) + origin;
+            var screen = CombatVisuals.Screen(args, world);
 
             // Цель вне экрана — стрелка на краю в её сторону.
             if (!vp.Contains(screen))
@@ -242,10 +245,9 @@ public sealed class EspOverlay : Overlay
         var worldCenter = world + category.Offset;
 
         // Габариты цели на экране — от них позиционируются полоски и имя.
-        var origin = Compat.BoxTopLeft(args.ViewportBounds);
         var box = Rect(
-            args.Viewport.WorldToLocal(worldCenter + new Vector2(-size.X / 2f, size.Y / 2f)) + origin,
-            args.Viewport.WorldToLocal(worldCenter + new Vector2(size.X / 2f, -size.Y / 2f)) + origin);
+            CombatVisuals.Screen(args, worldCenter + new Vector2(-size.X / 2f, size.Y / 2f)),
+            CombatVisuals.Screen(args, worldCenter + new Vector2(size.X / 2f, -size.Y / 2f)));
 
         // Полоски не зависят от рамки, позиция — от нижнего центра цели.
         var anchor = new Vector2((Compat.BoxLeft(box) + Compat.BoxRight(box)) / 2f, Compat.BoxBottom(box));

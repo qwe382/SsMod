@@ -142,7 +142,6 @@ public sealed class DamagePopupOverlay : Overlay
         if (popups.Count == 0 || args.Viewport.Eye is null)
             return;
 
-        var origin = Compat.BoxTopLeft(args.ViewportBounds);
         var handle = args.ScreenHandle;
 
         foreach (var popup in popups)
@@ -151,7 +150,7 @@ public sealed class DamagePopupOverlay : Overlay
             var done = MathF.Max(Lifetime - (float) left, 0f);
             var fade = Math.Clamp((float) left / 0.35f, 0f, 1f);
 
-            var screen = args.Viewport.WorldToLocal(popup.World) + origin;
+            var screen = CombatVisuals.Screen(args, popup.World);
             // Всплываем вверх и чуть подрастаем по мере затухания.
             screen.Y -= 26f + done * 10f;
             screen.X -= popup.Text.Length * 5.5f * 0.5f;
