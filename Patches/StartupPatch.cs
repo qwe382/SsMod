@@ -16,36 +16,56 @@ public static class StartupPatch
 
     public static void Postfix()
     {
+        if (_initialized)
+            return;
+
+        _initialized = true;
+
         try
         {
-            if (_initialized)
-                return;
-
             _sawmill ??= IoCManager.Resolve<ILogManager>().GetSawmill("ssmod");
             _sawmill.Info("PostInit: SsMod активен");
-
-            // Всплывашки роутера боя (ближний/дальний) у курсора. Роутер работает
-            // всегда, поэтому оверлей ставим сразу, а не галочкой.
-            var overlays = IoCManager.Resolve<IOverlayManager>();
-            if (!overlays.HasOverlay<RouterPopupOverlay>())
-                overlays.AddOverlay(new RouterPopupOverlay());
-
-            // «ХП при уроне» — всегда включено (галки в окне больше нет).
-            DamagePopup.Toggle(true);
-
-            // Стартовый конфиг: все основные функции включены (мелбот с
-            // автоударом, крио-бот, точки наводки, блокировка камеры, без
-            // эффектов, быстрый смыв, ESP). Свой конфиг применяется позже
-            // вручную и перекрывает это.
-            Config.ApplyDefaults();
-
-           // SsModUi.Create();
-
-            _initialized = true;
         }
         catch (Exception e)
         {
-            Console.Error.WriteLine($"[SsMod] Postfix failed: {e}");
+            Console.WriteLine($"[SsMod] PostInit: лог не поднялся: {e.Message}");
+        }
+
+        // Каждый шаг отдельно. Раньше всё шло одним try: одно исключение (например,
+        // в оверлее) молча обрывало остальные шаги — и стартовый конфиг не
+        // применялся вообще. Ошибку печатаем в stdout: stderr лаунчер не сохраняет.
+        Step("всплывашки роутера", () =>
+        {
+            var overlays = IoCManager.Resolve<IOverlayManager>();
+            if (!overlays.HasOverlay<RouterPopupOverlay>())
+                overlays.AddOverlay(new RouterPopupOverlay());
+        });
+
+        // Точки наводки висят всегда, независимо от галочки «Аимбот».
+        Step("точки наводки", () =>
+        {
+            var overlays = IoCManager.Resolve<IOverlayManager>();
+            if (!overlays.HasOverlay<GunBotOverlay>())
+                overlays.AddOverlay(new GunBotOverlay());
+        });
+
+        // Стартовый конфиг. Оверлеи внутри берут системы лениво, поэтому
+        // создание здесь безопасно (в PostInit IEntityManager.System<T>() ещё
+        // падает, см. комментарии в MelBot/GunBot/Esp/DamagePopup).
+        Step("дефолтный конфиг", Config.ApplyDefaults);
+
+        // SsModUi.Create();
+    }
+
+    private static void Step(string name, Action action)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine($"[SsMod] PostInit: {name} — ошибка: {e.GetType().Name}: {e.Message}");
         }
     }
 }

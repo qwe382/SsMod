@@ -21,7 +21,7 @@ internal static class CombatVisuals
     // Раствор дуги в градусах. Круг делится на 4 дуги с промежутками 60° между ними.
     public const float ArcSpan = 30f;
     public const int ArcCount = 4;
-    public const float ArcSpin = 90f; // градусов в секунду
+    public const float ArcSpin = 180f; // градусов в секунду
 
     // Сегментов на дугу: чем больше, тем глаже обводка.
     private const int SegmentsPerArc = 32;
@@ -31,8 +31,8 @@ internal static class CombatVisuals
     // толщина делается заливкой TriangleFan — см. ThickLine.
     public const float LineWidth = 2f;
 
-    // Дуги мелбота просили сделать жирнее (было 4).
-    public const float ArcWidth = 6f;
+    // Дуги мелбота просили сделать жирнее (было 4), потом ещё вдвое чётче.
+    public const float ArcWidth = 12f;
 
     // Цвета визуала цели.
     public readonly record struct Style(Color Line, Color Arc);

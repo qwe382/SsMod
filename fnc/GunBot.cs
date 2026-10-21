@@ -1,5 +1,6 @@
 using System.Numerics;
 using Content.Shared.CombatMode;
+using Content.Shared.Weapons.Ranged.Components;
 using Robust.Client.Graphics;
 using Robust.Client.Input;
 using Robust.Client.Player;
@@ -43,7 +44,10 @@ public static class GunBot
     public static void SetAim(bool on)
     {
         Aim = on;
-        ToggleOverlay(on);
+
+        // Оверлей с точками висит всегда: галочка только разрешает стрельбу.
+        // Иначе точки пропадали бы вместе с выключенным аимботом.
+        ToggleOverlay(true);
     }
 
     // Оверлей визуалов gun-bot'а.
@@ -66,8 +70,10 @@ public static class GunBot
     private static (bool Gun, bool Aim)? _lastState;
 
     // Что в активной руке: ствол? Это и есть переключатель роутера.
+    // Во время перезарядки активная рука на миг меняется на руку с магазином,
+    // поэтому ствол «пропадает» — мелбот в этот момент не должен встревать.
     public static bool HoldingGun(IEntityManager ent, EntityUid self)
-        => AttackReach.TryGetGun(ent, self, out _);
+        => GunApi.Reloading || AttackReach.TryGetGun(ent, self, out _);
 
     // Опрос режима: зовётся из оверлея всплывашек каждый кадр, независимо от боя.
     // Смена состояния — строка в лог и всплывашка у курсора.
@@ -146,10 +152,10 @@ public static class GunBot
 
         var aim = new CheckBox
         {
-            Text = "Аимбот (наводка пока не сделана)",
+            Text = "Стрелять в красную точку (аимбот)",
             Pressed = Aim,
-            ToolTip = "Разрешает gun-bot'у работать, когда в активной руке оружие дальнего боя: " +
-                      "рисует синие дуги по цели. Наводка и стрельба пока не сделаны",
+            ToolTip = "Бот сам стреляет в красную точку, когда цель под курсором. " +
+                      "Точки рисуются всегда, галочка включает только стрельбу",
         };
 
         aim.OnToggled += args =>
@@ -175,16 +181,36 @@ public static class GunBot
             Console.WriteLine($"[SsMod] del prior: снято меток {count}");
         };
 
+        // Авто-перезарядка и авто-передёргивание затвора: боту нечего стоять
+        // с пустым стволом или открытым болтом.
+        var reload = new CheckBox
+        {
+            Text = "Авто-перезарядка",
+            Pressed = AimBotSettings.AutoReload,
+            ToolTip = "Ствол пуст и магазин в свободной руке — вставить самим",
+        };
+        reload.OnToggled += args => AimBotSettings.AutoReload = args.Pressed;
+
+        var rack = new CheckBox
+        {
+            Text = "Авто-передёргивание затвора",
+            Pressed = AimBotSettings.AutoRack,
+            ToolTip = "Затвор открыт или помпа не передёрнута — передёрнуть самим",
+        };
+        rack.OnToggled += args => AimBotSettings.AutoRack = args.Pressed;
+
         box.AddChild(aim);
-        box.AddChild(new Label { Text = "Визуалы: те же линия и дуги, что у мелбота, но синие." });
-        box.AddChild(new Label { Text = "Цель — по приоритетам: Make Enemy, иначе тот, кто под курсором." });
-        box.AddChild(new Label { Text = "Роутер боя работает всегда: ствол в активной руке выключает" });
-        box.AddChild(new Label { Text = "мелбот целиком (вместе с визуалами) и отдаёт бой gun-bot'у." });
+        box.AddChild(reload);
+        box.AddChild(rack);
+        box.AddChild(new Label { Text = "Красная точка — предикт по скорости цели, синяя — текущая наводка." });
+        box.AddChild(new Label { Text = "Точки рисуются всегда. Цель — только тот, кто под курсором." });
+        box.AddChild(new Label { Text = "Стрельба сама включает боевой режим и берёт оружие в две руки." });
         box.AddChild(status);
         box.AddChild(del);
 
         return box;
     }
+
 }
 
 // Визуалы gun-bot'а: те же линия и дуги, что у мелбота (см. CombatVisuals),
@@ -197,12 +223,14 @@ public sealed class GunBotOverlay : Overlay
     [Dependency] private readonly IPlayerManager _player = default!;
     [Dependency] private readonly IGameTiming _timing = default!;
 
-    private readonly SharedTransformSystem _transform;
+    // Систему берём лениво: в EntryPoint.PostInit IEntityManager.System<T>()
+    // падает с NRE — оверлеи создаются именно там.
+    private SharedTransformSystem? _transformCache;
+    private SharedTransformSystem Transform => _transformCache ??= _ent.System<SharedTransformSystem>();
 
     public GunBotOverlay()
     {
         IoCManager.InjectDependencies(this);
-        _transform = _ent.System<SharedTransformSystem>();
     }
 
     protected override void Draw(in OverlayDrawArgs args)
@@ -214,49 +242,62 @@ public sealed class GunBotOverlay : Overlay
         catch (Exception e)
         {
             // Оверлей рисуется каждый кадр: исключение здесь завалило бы рендер.
-            Console.Error.WriteLine($"[SsMod] gun-bot draw failed: {e.Message}");
+            // Пишем в stdout: stderr лаунчер не сохраняет, и ошибка была невидима.
+            Console.WriteLine($"[SsMod] точки: ошибка — {e.Message}");
         }
     }
 
+    private static bool _loggedDraw;
+
     private void DrawTarget(in OverlayDrawArgs args)
     {
-        // Оверлей висит, пока отмечен аимбот.
-        if (!GunBot.Aim || args.Viewport.Eye is null)
+        if (args.Viewport.Eye is null)
             return;
+
+        if (!_loggedDraw)
+        {
+            _loggedDraw = true;
+            Console.WriteLine("[SsMod] точки: оверлей рисуется");
+        }
 
         if (_player.LocalEntity is not { Valid: true } self)
             return;
 
-        // Точки наводки: красная — предикт, синяя — ПИД к ней. Рисуются всегда,
-        // независимо от оружия в руке и боевого режима: это только геометрия.
-        PredictPoint.Tick(_ent, self, CombatVisuals.CursorWorld(args, out _));
+        // Аимботу нужен вьюпорт, чтобы перевести красную точку в экранную и
+        // подсунуть её вместо курсора на время GunSystem.Update.
+        AimBot.SetViewport(args.Viewport, args.ViewportBounds);
+
+        // Точки наводки рисуются всегда, даже без оружия в руке.
+        // Кнопку огня читаем по-настоящему: она держит лок цели.
+        PredictPoint.Tick(_ent, self, CombatVisuals.CursorWorld(args, out _), AimBot.IsFireHeld());
         DrawPoints(args);
 
-        // Дальше — визуал роутера, и только когда бой реально ведёт gun-bot:
-        // ствол в активной руке и боевой режим.
+        // Обслуживание ствола (перезарядка / передёргивание затвора) — до всех
+        // гейтов Step: для этого не нужны ни цель, ни боевой режим.
+        if (GunBot.Aim)
+            AimBot.Maintain(_ent, self);
+
+        // Дальше — визуал gun-bot'а: та же линия и дуги, что у мелбота (см.
+        // CombatVisuals), но синие. Только когда бой реально ведёт gun-bot:
+        // ствол в активной руке, аимбот отмечен и персонаж в боевом режиме.
         if (!GunBot.Active)
             return;
 
-        // Как и мелбот — только в боевом режиме.
         if (!_ent.TryGetComponent(self, out CombatModeComponent? combat) || !combat.IsInCombatMode)
             return;
 
-        // Приоритеты те же, что у мелбота (см. Targeting): сначала ближайший
-        // помеченный Make Enemy, иначе — тот, кто под курсором.
-        var target = Targeting.NearestEnemy(_ent, self, MelBotOverlay.AutoRange)
-                     ?? Targeting.UnderPoint(_ent, self,
-                         CombatVisuals.CursorWorld(args, out _), MelBotOverlay.SnapTiles);
-
-        if (target is not { } uid || !_ent.HasComponent<TransformComponent>(uid))
+        if (PredictPoint.Target is not { } target || !_ent.HasComponent<TransformComponent>(target))
             return;
 
-        var selfWorld = _transform.GetWorldPosition(self);
-        var targetWorld = _transform.GetWorldPosition(uid);
+        var selfWorld = Transform.GetWorldPosition(self);
+        var targetWorld = Transform.GetWorldPosition(target);
 
+        // Радиус дуг — радиус конуса разброса на дистанции до цели, а не
+        // фиксированные полтайла: видно, куда может уйти выстрел.
         CombatVisuals.Draw(args.ScreenHandle,
             CombatVisuals.Screen(args, selfWorld),
             CombatVisuals.Screen(args, targetWorld),
-            CombatVisuals.ArcRadius(args, targetWorld),
+            CombatVisuals.Radius(args, targetWorld, MathF.Max(AimBot.ConeTiles, 0.12f)),
             CombatVisuals.Ranged,
             _timing.RealTime);
     }

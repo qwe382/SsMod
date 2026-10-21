@@ -91,7 +91,11 @@ public sealed class DamagePopupOverlay : Overlay
     [Dependency] private readonly IResourceCache _cache = default!;
     [Dependency] private readonly IGameTiming _timing = default!;
 
-    private readonly SharedTransformSystem _transform;
+    // Систему берём лениво: в EntryPoint.PostInit IEntityManager.System<T>()
+    // падает с NRE — системы движка ещё не инициализированы, а оверлеи
+    // создаются именно там (стартовый конфиг).
+    private SharedTransformSystem? _transformCache;
+    private SharedTransformSystem Transform => _transformCache ??= _ent.System<SharedTransformSystem>();
     private readonly Font _font;
 
     // Суммарный урон каждой цели в прошлом кадре.
@@ -105,7 +109,6 @@ public sealed class DamagePopupOverlay : Overlay
     public DamagePopupOverlay()
     {
         IoCManager.InjectDependencies(this);
-        _transform = _ent.System<SharedTransformSystem>();
         _font = new VectorFont(
             _cache.GetResource<FontResource>("/Fonts/NotoSans/NotoSans-Regular.ttf"), 10);
     }
@@ -164,8 +167,8 @@ public sealed class DamagePopupOverlay : Overlay
     // Ищем тех, кому только что добавили урона.
     private void Scan(EntityUid self, TimeSpan now)
     {
-        var mapId = _transform.GetMapCoordinates(self).MapId;
-        var selfPos = _transform.GetWorldPosition(self);
+        var mapId = Transform.GetMapCoordinates(self).MapId;
+        var selfPos = Transform.GetWorldPosition(self);
 
         var query = _ent.AllEntityQueryEnumerator<TransformComponent>();
         while (query.MoveNext(out var uid, out _))
@@ -173,7 +176,7 @@ public sealed class DamagePopupOverlay : Overlay
             if (uid == self)
                 continue;
 
-            var coords = _transform.GetMapCoordinates(uid);
+            var coords = Transform.GetMapCoordinates(uid);
             if (coords.MapId != mapId)
                 continue;
 

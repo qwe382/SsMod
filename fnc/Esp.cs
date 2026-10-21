@@ -115,8 +115,13 @@ public sealed class EspOverlay : Overlay
     [Dependency] private readonly IResourceCache _cache = default!;
     [Dependency] private readonly IGameTiming _timing = default!;
 
-    private readonly SharedTransformSystem _transform;
-    private readonly SpriteSystem _sprite;
+    // Систему берём лениво: в EntryPoint.PostInit IEntityManager.System<T>()
+    // падает с NRE — системы движка ещё не инициализированы, а оверлеи
+    // создаются именно там (стартовый конфиг).
+    private SharedTransformSystem? _transformCache;
+    private SpriteSystem? _spriteCache;
+    private SharedTransformSystem Transform => _transformCache ??= _ent.System<SharedTransformSystem>();
+    private SpriteSystem Sprite => _spriteCache ??= _ent.System<SpriteSystem>();
     private readonly Font _font;
 
     private readonly List<EntityUid> _mobs = new();
@@ -124,8 +129,6 @@ public sealed class EspOverlay : Overlay
     public EspOverlay()
     {
         IoCManager.InjectDependencies(this);
-        _transform = _ent.System<SharedTransformSystem>();
-        _sprite = _ent.System<SpriteSystem>();
         _font = new VectorFont(
             _cache.GetResource<FontResource>("/Fonts/NotoSans/NotoSans-Regular.ttf"), 10);
     }
@@ -152,7 +155,7 @@ public sealed class EspOverlay : Overlay
 
         var mapId = eye.Position.MapId;
         var origin = Compat.BoxTopLeft(args.ViewportBounds);
-        var selfPos = _transform.GetWorldPosition(self);
+        var selfPos = Transform.GetWorldPosition(self);
         var handle = args.ScreenHandle;
 
         var vp = ViewRect(args.ViewportBounds);
@@ -179,10 +182,10 @@ public sealed class EspOverlay : Overlay
             if (EspSettings.PlayersOnly && !_ent.HasComponent<ActorComponent>(uid))
                 continue;
 
-            if (_transform.GetMapCoordinates(uid).MapId != mapId)
+            if (Transform.GetMapCoordinates(uid).MapId != mapId)
                 continue;
 
-            var world = _transform.GetWorldPosition(uid);
+            var world = Transform.GetWorldPosition(uid);
             var distance = (world - selfPos).Length();
             if (EspSettings.MaxDistance > 0f && distance > EspSettings.MaxDistance)
                 continue;
@@ -230,7 +233,7 @@ public sealed class EspOverlay : Overlay
         var size = new Vector2(0.5f, 1f);
         if (_ent.TryGetComponent(uid, out SpriteComponent? sprite) && sprite.Visible)
         {
-            var bounds = _sprite.GetLocalBounds((uid, sprite));
+            var bounds = Sprite.GetLocalBounds((uid, sprite));
             if (bounds.Width > 0f && bounds.Height > 0f)
                 size = bounds.Size;
         }

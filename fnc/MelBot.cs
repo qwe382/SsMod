@@ -100,7 +100,11 @@ public sealed class MelBotOverlay : Overlay
     [Dependency] private readonly IPlayerManager _player = default!;
     [Dependency] private readonly IGameTiming _timing = default!;
 
-    private readonly SharedTransformSystem _transform;
+    // Систему берём лениво: в EntryPoint.PostInit IEntityManager.System<T>()
+    // падает с NRE — системы движка ещё не инициализированы, а оверлеи
+    // создаются именно там (стартовый конфиг).
+    private SharedTransformSystem? _transformCache;
+    private SharedTransformSystem Transform => _transformCache ??= _ent.System<SharedTransformSystem>();
 
     // Радиус захвата в тайлах (1 тайл = 1 единица мира). Gun-bot берёт его же
     // для поиска цели под курсором.
@@ -117,7 +121,6 @@ public sealed class MelBotOverlay : Overlay
     public MelBotOverlay()
     {
         IoCManager.InjectDependencies(this);
-        _transform = _ent.System<SharedTransformSystem>();
     }
 
     protected override void Draw(in OverlayDrawArgs args)
@@ -224,12 +227,12 @@ public sealed class MelBotOverlay : Overlay
             // по тому, куда случайно смотрит настоящий курсор.
             HoldAuto = autoTarget is not null;
 
-            var targetWorld = _transform.GetWorldPosition(target);
+            var targetWorld = Transform.GetWorldPosition(target);
             CurrentTarget = target;
 
             // Дальность текущего оружия: пока цель вне досягаемости, мелбот не
             // форсирует атаку — иначе он бесконечно машет по пустоте.
-            var selfWorld = _transform.GetWorldPosition(self);
+            var selfWorld = Transform.GetWorldPosition(self);
             CurrentTargetInReach = AttackReach.InReach(_ent, self, target);
 
             // Рисуем в ScreenSpace, поэтому мировые точки переводим в экранные
@@ -237,7 +240,7 @@ public sealed class MelBotOverlay : Overlay
             // LocalToWorld, из которого получена mouseWorld. Саму линию и дуги
             // рисует CombatVisuals: этот же визуал, но синим, рисует gun-bot.
             var targetScreen = CombatVisuals.Screen(args, targetWorld);
-            CurrentTargetMapCoordinates = _transform.GetMapCoordinates(target);
+            CurrentTargetMapCoordinates = Transform.GetMapCoordinates(target);
             CurrentTargetScreenPosition = targetScreen;
 
             CombatVisuals.Draw(args.ScreenHandle,
@@ -351,6 +354,7 @@ public static class MelBot
                 return;
 
             overlays.AddOverlay(new MelBotOverlay());
+            Console.WriteLine("[SsMod] melbot: включён");
         }
         else
         {
@@ -410,9 +414,18 @@ internal static class MelBotClickPatch
         var transform = ent.System<SharedTransformSystem>();
         var targetMap = MelBotOverlay.CurrentTargetMapCoordinates;
         var coords = transform.ToCoordinates(targetMap);
-        var clicked = IoCManager.Resolve<Robust.Client.State.IStateManager>().CurrentState is GameplayStateBase screen
-            ? screen.GetClickedEntity(targetMap) ?? EntityUid.Invalid
-            : EntityUid.Invalid;
+        var screen = IoCManager.Resolve<Robust.Client.State.IStateManager>().CurrentState as GameplayStateBase;
+
+        // Клик по предмету (подобрать, открыть, поставить) не подменяем:
+        // иначе мелбот превращает его в удар по цели и вещи «не берутся».
+        if (screen is not null)
+        {
+            var underCursor = screen.GetClickedEntity(transform.ToMapCoordinates(input.Coordinates));
+            if (underCursor is { } orig && orig.Valid && !ent.HasComponent<MobStateComponent>(orig))
+                return;
+        }
+
+        var clicked = screen?.GetClickedEntity(targetMap) ?? EntityUid.Invalid;
 
         message = new Robust.Shared.Input.ClientFullInputCmdMessage(
             input.Tick,

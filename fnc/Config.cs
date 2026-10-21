@@ -56,6 +56,10 @@ public static class Config
         // Фрейм «Персонажи»: таймер таблицы.
         RegisterTree("characters", typeof(CharacterSettings), null);
 
+        // Стрельба gun-bot'а (вкладка Gun-bot): поведение стрельбы.
+        // Включение самой наводки живёт отдельным ключом gunbot.aim ниже.
+        RegisterTree("aimbot", typeof(AimBotSettings), null);
+
 
         Add("melbot",
             () => IoCManager.Resolve<IOverlayManager>().HasOverlay<MelBotOverlay>() ? "true" : "false",
@@ -104,29 +108,51 @@ public static class Config
 
     // ---------- Конфиг по умолчанию ----------
 
-    // Всё основное включено. Зовётся на старте (Patches/StartupPatch) до того,
-    // как пользователь применит свой конфиг из буфера или файла: дефолт — это
-    // стартовое состояние, а не сохранённый профиль.
+    // Всё основное включено. Зовётся один раз на старте (Patches/StartupPatch)
+    // до того, как пользователь применит свой конфиг из буфера или файла:
+    // дефолт — это стартовое состояние, а не сохранённый профиль.
     public static void ApplyDefaults()
     {
         EnsureRegistered();
 
-        // Боты: мелбот с автоударом и точки наводки gun-bot'а.
-        // Крио-бот на старте не включаем: он бьёт сам и нужен редко.
-        MelBot.Toggle(true);
-        MelBotOverlay.AutoAttack = true;
-        MelBotOverlay.AutoAttackLmb = true;
-        GunBot.SetAim(true);
+        Step("попапы урона", () => DamagePopup.Toggle(true));
 
-        // Твики.
-        CameraLock.Toggle(true);
-        NoEffects.Toggle(true);
-        QuickFlush.Toggle(true);
+        // Каждый шаг отдельно: если один оверлей не поднимется, остальные всё
+        // равно включатся, а причина попадёт в лог.
+        //
+        // Мелбот включён, но автоудар — нет: бот только показывает цель,
+        // вложенные настройки автоудара из окна убраны.
+        Step("мелбот", () =>
+        {
+            MelBot.Toggle(true);
+            MelBotOverlay.AutoAttack = false;
+            MelBotOverlay.AutoAttackLmb = false;
+        });
+
+        // Точки наводки gun-bot'а. Крио-бот на старте не включаем: он бьёт сам.
+        Step("наводка", () => GunBot.SetAim(true));
+
+        Step("блокировка камеры", () => CameraLock.Toggle(true));
+        Step("без эффектов", () => NoEffects.Toggle(true));
+        Step("быстрый смыв", () => QuickFlush.Toggle(true));
 
         // ESP включён; категории и полоски в нём уже включены по умолчанию.
-        Esp.Toggle(true);
+        Step("ESP", () => Esp.Toggle(true));
 
         Console.WriteLine("[SsMod] конфиг по умолчанию: основные функции включены");
+    }
+
+    private static void Step(string name, Action action)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception e)
+        {
+            // Пишем в stdout: stderr лаунчер не всегда сохраняет.
+            Console.WriteLine($"[SsMod] дефолт: {name} не включился: {e.GetType().Name}: {e.Message}");
+        }
     }
 
     private static void Add(string key, Func<string> get, Action<string> set)
