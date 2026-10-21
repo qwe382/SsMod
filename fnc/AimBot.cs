@@ -1303,10 +1303,24 @@ internal static class GunApi
 
             var whitelist = GunSlotWhitelist(ent, gun, out _);
 
+            // Ни одного магазинного слота — перезаряжать нечего. Без этой
+            // проверки в «магазин» попадала виртуальная заглушка двуручного
+            // хвата, и бот бесконечно совал её в ствол: ствол дёргался в руках,
+            // активная рука прыгала туда-сюда.
+            if (whitelist is null)
+            {
+                Diag(ent, gun, hands, self, "у ствола нет магазинного слота");
+                return;
+            }
+
             // 1) Магазин уже в другой руке — меняем активную руку и вставляем.
             foreach (var (hand, item) in items)
             {
                 if (hand == gunHand || item is not { } mag)
+                    continue;
+
+                // Заглушку хвата за магазин не принимаем.
+                if (IsVirtual(ent, mag))
                     continue;
 
                 if (!WhitelistMatch(whitelist, ent, mag))
@@ -1728,7 +1742,8 @@ internal static class GunApi
 
                 foreach (var item in Containers(ent, worn, 2))
                 {
-                    if (item == gun || !WhitelistMatch(whitelist, ent, item) || IsEmptyMag(ent, item))
+                    if (item == gun || IsVirtual(ent, item)
+                        || !WhitelistMatch(whitelist, ent, item) || IsEmptyMag(ent, item))
                         continue;
 
                     mag = item;
