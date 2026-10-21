@@ -318,11 +318,19 @@ public sealed class GunBotOverlay : Overlay
         if (!GunBot.Active)
             return;
 
-        if (!_ent.TryGetComponent(self, out CombatModeComponent? combat) || !combat.IsInCombatMode)
-            return;
-
+        // Цели нет — разброс всё равно показываем, у курсора: иначе понять,
+        // какой сейчас конус, можно только наведясь на кого-то.
         if (PredictPoint.Target is not { } target || !_ent.HasComponent<TransformComponent>(target))
+        {
+            DrawSpreadAtCursor(args, self);
             return;
+        }
+
+        if (!_ent.TryGetComponent(self, out CombatModeComponent? combat) || !combat.IsInCombatMode)
+        {
+            DrawSpreadAtCursor(args, self);
+            return;
+        }
 
         var selfWorld = Transform.GetWorldPosition(self);
         var targetWorld = Transform.GetWorldPosition(target);
@@ -358,6 +366,39 @@ public sealed class GunBotOverlay : Overlay
         var pos = toScreen + new Vector2(radius + 6f, -6f);
         Compat.DrawText(handle, _font, pos + new Vector2(1f, 1f), text, 1f, new Color(0f, 0f, 0f, 0.7f));
         Compat.DrawText(handle, _font, pos, text, 1f, VisualSettings.SpreadTextColor);
+    }
+
+    // Разброс без цели: дуга вокруг курсора. Радиус — конус на эталонной
+    // дистанции из настроек (или фиксированный), градусы рядом.
+    private void DrawSpreadAtCursor(in OverlayDrawArgs args, EntityUid self)
+    {
+        if (!VisualSettings.SpreadEnabled || !VisualSettings.SpreadNoTarget)
+            return;
+
+        if (!AttackReach.TryGetGun(_ent, self, out var gunUid))
+            return;
+
+        var (deg, tiles) = AimBot.SpreadAt(gunUid, VisualSettings.SpreadRefTiles);
+
+        var radiusTiles = VisualSettings.SpreadFromCone
+            ? MathF.Max(tiles * VisualSettings.SpreadScale, VisualSettings.SpreadMinTiles)
+            : VisualSettings.SpreadFixedTiles;
+
+        var world = CombatVisuals.CursorWorld(args, out _);
+        var center = CombatVisuals.CursorScreen(args, out _) + new Vector2(0f, VisualSettings.SpreadCursorOffsetY);
+        var radius = CombatVisuals.Radius(args, world, radiusTiles);
+
+        if (VisualSettings.TraceArcs)
+            CombatVisuals.Arcs(handle: args.ScreenHandle, center: center, radius: radius,
+                color: CombatVisuals.Ranged.Arc, now: _timing.RealTime);
+
+        if (!VisualSettings.SpreadDegrees)
+            return;
+
+        var text = $"{deg:0.0}°";
+        var pos = center + new Vector2(radius + 6f, -6f);
+        Compat.DrawText(args.ScreenHandle, _font, pos + new Vector2(1f, 1f), text, 1f, new Color(0f, 0f, 0f, 0.7f));
+        Compat.DrawText(args.ScreenHandle, _font, pos, text, 1f, VisualSettings.SpreadTextColor);
     }
 
     // Красная — точка предикта (куда надо стрелять), синяя — точка ПИД, которая

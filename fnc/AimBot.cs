@@ -477,6 +477,24 @@ public static class AimBot
     private static Angle _spreadSeen;
     private static TimeSpan _spreadAt;
 
+    // Текущий разброс ствола без привязки к цели: градусы (половина конуса, как
+    // в SpreadDeg) и радиус конуса в тайлах на заданной дистанции. Нужен
+    // индикатору разброса, когда цели нет.
+    internal static (float Deg, float Tiles) SpreadAt(EntityUid gunUid, float distance)
+    {
+        var ent = IoCManager.Resolve<IEntityManager>();
+
+        if (!ent.TryGetComponent(gunUid, out GunComponent? gun))
+            return (0f, 0f);
+
+        var now = IoCManager.Resolve<IGameTiming>().CurTime;
+        var half = SpreadHalf(gun, now);
+
+        var deg = (float) (half * 180.0 / Math.PI);
+        var tiles = MathF.Tan(MathF.Min(half, 1.4f)) * distance;
+        return (deg, tiles);
+    }
+
     // Оценка текущего разброса. CurrentAngle приезжает с сервера только в момент
     // выстрела, поэтому затухание (AngleDecay) считаем сами — от времени, когда
     // значение последний раз менялось, как это делает сервер в GetRecoilAngle.

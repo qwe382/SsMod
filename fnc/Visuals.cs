@@ -37,6 +37,12 @@ public static class VisualSettings
     public static bool SpreadDegrees;
     public static Color SpreadTextColor = new(0.75f, 0.85f, 1f, 0.95f);
 
+    // Разброс без цели: рисуем у курсора, радиус считаем по конусу на эталонной
+    // дистанции — иначе, пока не наведёшься на кого-то, разброс не увидеть.
+    public static bool SpreadNoTarget = true;
+    public static float SpreadRefTiles = 8f;
+    public static float SpreadCursorOffsetY = 0f;
+
     // Линия до цели и дуги вокруг неё (мелбот/gun-bot).
     public static bool TraceLine = true;
     public static bool TraceArcs = true;
@@ -363,16 +369,20 @@ public static class Visuals
     {
         var grid = Grid(
             ("Множитель ×", Spin(VisualSettings.SpreadScale, 0.1f, 2, v => VisualSettings.SpreadScale = v)),
-            ("Фикс., тайлов", Spin(VisualSettings.SpreadFixedTiles, 0.1f, 2, v => VisualSettings.SpreadFixedTiles = v)),
-            ("Минимум, тайлов", Spin(VisualSettings.SpreadMinTiles, 0.05f, 2, v => VisualSettings.SpreadMinTiles = v)));
+            ("Минимум, тайлов", Spin(VisualSettings.SpreadMinTiles, 0.05f, 2, v => VisualSettings.SpreadMinTiles = v)),
+            ("Фикс. радиус", Spin(VisualSettings.SpreadFixedTiles, 0.1f, 2, v => VisualSettings.SpreadFixedTiles = v)),
+            ("Дистанция без цели", Spin(VisualSettings.SpreadRefTiles, 0.5f, 1, v => VisualSettings.SpreadRefTiles = v)),
+            ("Сдвиг по Y", Spin(VisualSettings.SpreadCursorOffsetY, 2f, 0, v => VisualSettings.SpreadCursorOffsetY = v)));
 
         return Section("Разброс", Body(
             Check("Показывать разброс", VisualSettings.SpreadEnabled, v => VisualSettings.SpreadEnabled = v),
+            Check("Без цели — у курсора", VisualSettings.SpreadNoTarget, v => VisualSettings.SpreadNoTarget = v),
             Check("Радиус по конусу разброса", VisualSettings.SpreadFromCone, v => VisualSettings.SpreadFromCone = v),
             Check("Писать градусы", VisualSettings.SpreadDegrees, v => VisualSettings.SpreadDegrees = v),
             grid,
             new Label { Text = "Цвет градусов" },
-            ColorControl(VisualSettings.SpreadTextColor, c => VisualSettings.SpreadTextColor = c)));
+            ColorControl(VisualSettings.SpreadTextColor, c => VisualSettings.SpreadTextColor = c)),
+            expanded: true);
     }
 
     private static Control AmmoSection()
