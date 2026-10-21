@@ -103,6 +103,11 @@ internal static class CombatVisuals
     public static float ArcRadius(in OverlayDrawArgs args, Vector2 world)
         => Radius(args, world, ArcRadiusTiles);
 
+    // Только дуги без линии: gun-bot рисует линию и дуги отдельно, чтобы радиус
+    // дуг можно было вести от разброса, а линию включать своей галочкой.
+    public static void Arcs(DrawingHandleScreen handle, Vector2 center, float radius, Color color, TimeSpan now)
+        => DrawArcs(handle, center, radius, color, now);
+
     // Мир под курсором. Через EyeManager.PixelToMap не берём: он идёт через
     // _uiManager.MouseGetControl и молча отдаёт мир в нуле, если курсор мимо
     // вьюпорта. Здесь берём вьюпорт напрямую — он компенсирует и масштаб

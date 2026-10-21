@@ -27,7 +27,7 @@ public static class ModEntry
             var applied = 0;
             var failed = 0;
 
-            foreach (var type in assembly.GetTypes())
+            foreach (var type in SafeTypes(assembly))
             {
                 if (type.GetCustomAttribute<HarmonyPatch>() == null)
                     continue;
@@ -54,6 +54,24 @@ public static class ModEntry
         catch (Exception e)
         {
             Console.Error.WriteLine($"[SsMod] Entry failed: {e}");
+        }
+    }
+
+    // GetTypes() падает целиком (ReflectionTypeLoadException), если хотя бы один
+    // тип ссылается на отсутствующий в этой сборке контента тип — тогда не
+    // накладывался НИ ОДИН патч. Берём те типы, которые загрузились.
+    private static IEnumerable<Type> SafeTypes(Assembly assembly)
+    {
+        try
+        {
+            return assembly.GetTypes();
+        }
+        catch (ReflectionTypeLoadException e)
+        {
+            var loaded = e.Types.Where(t => t != null).Cast<Type>().ToArray();
+            Console.Error.WriteLine(
+                $"[SsMod] часть типов не загрузилась: {e.Types.Length - loaded.Length} из {e.Types.Length}, патчим остальные");
+            return loaded;
         }
     }
 

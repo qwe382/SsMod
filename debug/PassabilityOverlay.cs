@@ -80,7 +80,9 @@ public sealed class PassabilityOverlay : Overlay
             {
                 var (_, _, world, inv) = _transform.GetWorldPositionRotationMatrixWithInv(grid.Owner);
 
-                var localAabb = inv.TransformBox(in args.WorldBounds).Enlarged(grid.Comp.TileSize * 2f);
+                // Без `in`: в 264 параметр объявлен без in, и вызов с ключевым
+                // словом там не компилируется (сам аргумент — обычная передача).
+                var localAabb = inv.TransformBox(args.WorldBounds).Enlarged(grid.Comp.TileSize * 2f);
                 var tiles = _map.GetLocalTilesEnumerator(grid.Owner, grid.Comp, localAabb);
 
                 // Рисуем в локальных координатах грида: SetTransform учтёт его поворот/позицию.

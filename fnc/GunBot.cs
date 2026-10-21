@@ -247,15 +247,21 @@ public sealed class GunBotOverlay : Overlay
     [Dependency] private readonly IEntityManager _ent = default!;
     [Dependency] private readonly IPlayerManager _player = default!;
     [Dependency] private readonly IGameTiming _timing = default!;
+    [Dependency] private readonly IResourceCache _cache = default!;
 
     // Систему берём лениво: в EntryPoint.PostInit IEntityManager.System<T>()
     // падает с NRE — оверлеи создаются именно там.
     private SharedTransformSystem? _transformCache;
     private SharedTransformSystem Transform => _transformCache ??= _ent.System<SharedTransformSystem>();
 
+    // Шрифт для градусов разброса.
+    private readonly Font _font;
+
     public GunBotOverlay()
     {
         IoCManager.InjectDependencies(this);
+        _font = new VectorFont(
+            _cache.GetResource<FontResource>("/Fonts/NotoSans/NotoSans-Regular.ttf"), 10);
     }
 
     protected override void Draw(in OverlayDrawArgs args)
@@ -321,14 +327,37 @@ public sealed class GunBotOverlay : Overlay
         var selfWorld = Transform.GetWorldPosition(self);
         var targetWorld = Transform.GetWorldPosition(target);
 
-        // Радиус дуг — радиус конуса разброса на дистанции до цели, а не
-        // фиксированные полтайла: видно, куда может уйти выстрел.
-        CombatVisuals.Draw(args.ScreenHandle,
-            CombatVisuals.Screen(args, selfWorld),
-            CombatVisuals.Screen(args, targetWorld),
-            CombatVisuals.Radius(args, targetWorld, MathF.Max(AimBot.ConeTiles, 0.12f)),
-            CombatVisuals.Ranged,
-            _timing.RealTime);
+        var handle = args.ScreenHandle;
+        var toScreen = CombatVisuals.Screen(args, targetWorld);
+
+        if (VisualSettings.TraceLine)
+        {
+            CombatVisuals.ThickLine(handle,
+                CombatVisuals.Screen(args, selfWorld),
+                toScreen,
+                VisualSettings.TraceWidth,
+                CombatVisuals.Ranged.Line);
+        }
+
+        // Радиус дуг: либо конус разброса на дистанции до цели (умноженный и не
+        // меньше минимума), либо фиксированный — всё настраивается в «Визуалах».
+        var radiusTiles = VisualSettings.SpreadFromCone
+            ? MathF.Max(AimBot.ConeTiles * VisualSettings.SpreadScale, VisualSettings.SpreadMinTiles)
+            : VisualSettings.SpreadFixedTiles;
+
+        var radius = CombatVisuals.Radius(args, targetWorld, radiusTiles);
+
+        if (VisualSettings.SpreadEnabled && VisualSettings.TraceArcs)
+            CombatVisuals.Arcs(handle, toScreen, radius, CombatVisuals.Ranged.Arc, _timing.RealTime);
+
+        if (!VisualSettings.SpreadDegrees)
+            return;
+
+        // Градусы разброса рядом с дугой.
+        var text = $"{AimBot.SpreadDeg:0.0}°";
+        var pos = toScreen + new Vector2(radius + 6f, -6f);
+        Compat.DrawText(handle, _font, pos + new Vector2(1f, 1f), text, 1f, new Color(0f, 0f, 0f, 0.7f));
+        Compat.DrawText(handle, _font, pos, text, 1f, VisualSettings.SpreadTextColor);
     }
 
     // Красная — точка предикта (куда надо стрелять), синяя — точка ПИД, которая

@@ -3,7 +3,6 @@ using System.Reflection;
 using System.Text;
 using Content.Client.Examine;
 using Content.Shared.Botany.Components;
-using Content.Shared.Botany.Traits.Components;
 using Content.Shared.Chemistry.Reagent;
 using HarmonyLib;
 using Robust.Client.UserInterface;
@@ -84,19 +83,7 @@ public static class BotanyRead
 
         if (plant != null || holder != null)
         {
-            var traits = new List<string>();
-            foreach (var trait in ent.GetComponents<PlantTraitsComponent>(target))
-            {
-                if (trait.TraitState is not { } state)
-                    continue;
-
-                var text = Loc.GetString(state);
-                if (traits.Contains(text) || existingText.Contains(text))
-                    continue;
-
-                traits.Add(text);
-            }
-
+            var traits = TraitsText(ent, target, existingText);
             if (traits.Count > 0)
                 lines.Add($"Черты: {string.Join(", ", traits)}");
         }
@@ -128,6 +115,51 @@ public static class BotanyRead
             sb.Append('\n').Append(line);
 
         return sb.ToString();
+    }
+
+    // Черты растения. Тип компонента ищем по имени: на «маринах» (движок 264)
+    // пространства Content.Shared.Botany.Traits.Components нет вовсе, и прямое
+    // обращение к нему роняло загрузку типа, а с ним и PatchAll. Поле TraitState
+    // читаем рефлексией по той же причине.
+    private static List<string> TraitsText(IEntityManager ent, EntityUid target, string existingText)
+    {
+        var result = new List<string>();
+
+        var type = Compat.FindType("Content.Shared.Botany.Traits.Components.PlantTraitsComponent");
+        if (type is null)
+            return result;
+
+        var field = type.GetField("TraitState", BindingFlags.Public | BindingFlags.Instance);
+        var property = type.GetProperty("TraitState", BindingFlags.Public | BindingFlags.Instance);
+
+        try
+        {
+            foreach (var (uid, comp) in ent.GetAllComponents(type))
+            {
+                if (uid != target)
+                    continue;
+
+                var state = field?.GetValue(comp) ?? property?.GetValue(comp);
+                if (state is null)
+                    continue;
+
+                var id = state.ToString();
+                if (string.IsNullOrEmpty(id))
+                    continue;
+
+                var text = Loc.GetString(id!);
+                if (result.Contains(text) || existingText.Contains(text))
+                    continue;
+
+                result.Add(text);
+            }
+        }
+        catch
+        {
+            // Сборка без этих компонентов — просто не показываем черты.
+        }
+
+        return result;
     }
 
     private static string N(float value)

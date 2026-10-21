@@ -28,6 +28,15 @@ public static class VisualSettings
     public static Color AmmoEmptyColor = new(1f, 0.3f, 0.3f);
     public static float AmmoOffsetY = 0f;
 
+    // Как показывать разброс: дуги вокруг цели (gun-bot).
+    public static bool SpreadEnabled = true;
+    public static bool SpreadFromCone = true;   // радиус = конус разброса на дистанции
+    public static float SpreadFixedTiles = 0.5f; // радиус, если конусом не считаем
+    public static float SpreadScale = 1f;
+    public static float SpreadMinTiles = 0.12f;
+    public static bool SpreadDegrees;
+    public static Color SpreadTextColor = new(0.75f, 0.85f, 1f, 0.95f);
+
     // Линия до цели и дуги вокруг неё (мелбот/gun-bot).
     public static bool TraceLine = true;
     public static bool TraceArcs = true;
@@ -315,9 +324,10 @@ public static class Visuals
 
         var visuals = new BoxContainer { Orientation = BoxContainer.LayoutOrientation.Vertical };
         visuals.AddChild(AmmoSection());
+        visuals.AddChild(SpreadSection());
         visuals.AddChild(CombatLineSection());
         tabs.AddChild(visuals);
-        TabContainer.SetTabTitle(visuals, "Дуга патронов");
+        TabContainer.SetTabTitle(visuals, "Визуалы");
 
         var traces = new BoxContainer { Orientation = BoxContainer.LayoutOrientation.Vertical };
         traces.AddChild(TracesSection());
@@ -345,6 +355,24 @@ public static class Visuals
             new Label { Text = "Неизвестные (турели)" },
             ColorControl(VisualSettings.TracesUnknown, c => VisualSettings.TracesUnknown = c)),
             expanded: true);
+    }
+
+    // Как отображается разброс вокруг цели: радиус от конуса или фиксированный,
+    // множитель, минимум и градусы числом.
+    private static Control SpreadSection()
+    {
+        var grid = Grid(
+            ("Множитель ×", Spin(VisualSettings.SpreadScale, 0.1f, 2, v => VisualSettings.SpreadScale = v)),
+            ("Фикс., тайлов", Spin(VisualSettings.SpreadFixedTiles, 0.1f, 2, v => VisualSettings.SpreadFixedTiles = v)),
+            ("Минимум, тайлов", Spin(VisualSettings.SpreadMinTiles, 0.05f, 2, v => VisualSettings.SpreadMinTiles = v)));
+
+        return Section("Разброс", Body(
+            Check("Показывать разброс", VisualSettings.SpreadEnabled, v => VisualSettings.SpreadEnabled = v),
+            Check("Радиус по конусу разброса", VisualSettings.SpreadFromCone, v => VisualSettings.SpreadFromCone = v),
+            Check("Писать градусы", VisualSettings.SpreadDegrees, v => VisualSettings.SpreadDegrees = v),
+            grid,
+            new Label { Text = "Цвет градусов" },
+            ColorControl(VisualSettings.SpreadTextColor, c => VisualSettings.SpreadTextColor = c)));
     }
 
     private static Control AmmoSection()
