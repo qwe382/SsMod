@@ -45,6 +45,12 @@ public static class GunBot
     {
         Aim = on;
 
+        // Одна кнопка на всё: стрельба, удержание кнопки огня (для
+        // неавтоматического оружия — автоклики), боевой режим и допуск разброса.
+        AimBotSettings.AutoFire = on;
+        AimBotSettings.AccuracyGate = on;
+        AimBotSettings.AutoCombat = on;
+
         // Оверлей с точками висит всегда: галочка только разрешает стрельбу.
         // Иначе точки пропадали бы вместе с выключенным аимботом.
         ToggleOverlay(true);
@@ -154,8 +160,9 @@ public static class GunBot
         {
             Text = "Стрелять в красную точку (аимбот)",
             Pressed = Aim,
-            ToolTip = "Бот сам стреляет в красную точку, когда цель под курсором. " +
-                      "Точки рисуются всегда, галочка включает только стрельбу",
+            ToolTip = "Одна кнопка на всё: наводка, удержание огня (у неавтоматического " +
+                      "оружия — автоклики), боевой режим, допуск разброса 1 клетка, " +
+                      "перезарядка и две руки",
         };
 
         aim.OnToggled += args =>
@@ -202,9 +209,6 @@ public static class GunBot
         box.AddChild(aim);
         box.AddChild(reload);
         box.AddChild(rack);
-        box.AddChild(new Label { Text = "Красная точка — предикт по скорости цели, синяя — текущая наводка." });
-        box.AddChild(new Label { Text = "Точки рисуются всегда. Цель — только тот, кто под курсором." });
-        box.AddChild(new Label { Text = "Стрельба сама включает боевой режим и берёт оружие в две руки." });
         box.AddChild(status);
         box.AddChild(del);
 
@@ -263,14 +267,18 @@ public sealed class GunBotOverlay : Overlay
         if (_player.LocalEntity is not { Valid: true } self)
             return;
 
-        // Аимботу нужен вьюпорт, чтобы перевести красную точку в экранную и
-        // подсунуть её вместо курсора на время GunSystem.Update.
-        AimBot.SetViewport(args.Viewport, args.ViewportBounds);
+        // Точки наводки — визуал только для оружия дальнего боя: без ствола в
+        // руке их не рисуем и цель не выбираем.
+        if (GunBot.Aim && AttackReach.TryGetGun(_ent, self, out _))
+        {
+            // Аимботу нужен вьюпорт, чтобы перевести красную точку в экранную и
+            // подсунуть её вместо курсора на время GunSystem.Update.
+            AimBot.SetViewport(args.Viewport, args.ViewportBounds);
 
-        // Точки наводки рисуются всегда, даже без оружия в руке.
-        // Кнопку огня читаем по-настоящему: она держит лок цели.
-        PredictPoint.Tick(_ent, self, CombatVisuals.CursorWorld(args, out _), AimBot.IsFireHeld());
-        DrawPoints(args);
+            // Кнопку огня читаем по-настоящему: она держит лок цели.
+            PredictPoint.Tick(_ent, self, CombatVisuals.CursorWorld(args, out _), AimBot.IsFireHeld());
+            DrawPoints(args);
+        }
 
         // Обслуживание ствола (перезарядка / передёргивание затвора) — до всех
         // гейтов Step: для этого не нужны ни цель, ни боевой режим.

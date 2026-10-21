@@ -77,18 +77,16 @@ namespace SsMod.Fnc;
 // две руки) — мод ничего не «дорисовывает» на сервере.
 public static class AimBotSettings
 {
-    // Разрешить боту стрелять самому. По умолчанию НЕТ: бот наводится на
-    // красную точку, но выстрел происходит только когда игрок сам держит
-    // кнопку огня.
-    public static bool AutoFire = false;
+    // Бот стреляет сам: держит кнопку огня, когда цель в красной точке.
+    // Включается той же галочкой, что и наводка (одна кнопка на всё).
+    public static bool AutoFire = true;
 
-    // Не стрелять, пока конус разброса шире цели: ждать, пока CurrentAngle
-    // затухнет (AngleDecay), вместо очереди в молоко. По умолчанию выключено:
-    // с ним оружие с разбросом вообще не стреляет, пока не «успокоится».
-    public static bool AccuracyGate = false;
+    // Не стрелять, пока конус разброса шире допуска: ждём, пока CurrentAngle
+    // затухнет (AngleDecay), вместо очереди в молоко.
+    public static bool AccuracyGate = true;
 
-    // Допуск точности: 1 — конус разброса ровно с радиус хитбокса цели,
-    // меньше — стрелять только наверняка, больше — не ждать.
+    // Допуск точности в тайлах (клетках): стреляем, если конус разброса на
+    // дистанции до цели не шире клетки.
     public static float AccuracyTolerance = 1f;
 
     // Упреждение по скорости цели (для снарядов; хитскану не нужно).
@@ -269,7 +267,7 @@ public static class AimBot
         // ---- цель и точка прицела: ровно те же, что у точек наводки.
         // Считаем их здесь же, чтобы кадр стрельбы и кадр отрисовки видели одну
         // и ту же геометрию. Цель — только тот, кто под курсором.
-        PredictPoint.Tick(ent, self, CursorWorld(), KeyDown(FireKey));
+        PredictPoint.Tick(ent, self, CursorWorld(), KeyDown(FireKey) || AimBotSettings.AutoFire);
 
         if (PredictPoint.Target is not { } uid || !PredictPoint.HasTarget)
         {
@@ -314,13 +312,8 @@ public static class AimBot
         InCombat = combat;
 
         // ---- боевой режим и две руки: без них сервер просто не выстрелит
-        if (!combat)
-        {
-            // Боевой режим включаем только когда игрок сам жмёт огонь: иначе
-            // он щёлкал бы при каждом наведении курсора на чужого.
-            if (AimBotSettings.AutoCombat && KeyDown(FireKey))
-                GunApi.TryCombatMode(ent, self);
-        }
+        if (!combat && AimBotSettings.AutoCombat)
+            GunApi.TryCombatMode(ent, self);
 
         if (RequiresWield && !Wielded)
         {
@@ -333,7 +326,7 @@ public static class AimBot
         AimMap = transform.GetMapCoordinates(uid);
 
         // ---- разброс: та же формула, что у сервера в GetRecoilAngle
-        var half = SpreadHalf(gun);
+        var half = SpreadHalf(gun, now);
         SpreadDeg = (float) (half * 180.0 / Math.PI);
         ConeTiles = MathF.Tan(MathF.Min(half, 1.4f)) * Distance;
 
@@ -364,7 +357,7 @@ public static class AimBot
             Status = "пусто";
             WantsFire = false;
         }
-        else if (AimBotSettings.AccuracyGate && ConeTiles > HitboxRadius * Math.Clamp(AimBotSettings.AccuracyTolerance, 0.1f, 4f))
+        else if (AimBotSettings.AccuracyGate && ConeTiles > MathF.Max(AimBotSettings.AccuracyTolerance, 0.05f))
         {
             Status = $"жду разброс ({SpreadDeg:0.0}°)";
             WantsFire = false;
@@ -460,9 +453,22 @@ public static class AimBot
     // время с прошлого выстрела неизвестно. Считаем без затухания — это может
     // заставить подождать лишний кадр, но никогда не разрешит выстрел с завышенной
     // точностью.
-    private static float SpreadHalf(GunComponent gun)
+    private static Angle _spreadSeen;
+    private static TimeSpan _spreadAt;
+
+    // Оценка текущего разброса. CurrentAngle приезжает с сервера только в момент
+    // выстрела, поэтому затухание (AngleDecay) считаем сами — от времени, когда
+    // значение последний раз менялось, как это делает сервер в GetRecoilAngle.
+    private static float SpreadHalf(GunComponent gun, TimeSpan now)
     {
-        var cur = gun.CurrentAngle.Theta + gun.AngleIncreaseModified.Theta;
+        if (gun.CurrentAngle != _spreadSeen)
+        {
+            _spreadSeen = gun.CurrentAngle;
+            _spreadAt = now;
+        }
+
+        var since = now > _spreadAt ? (float) (now - _spreadAt).TotalSeconds : 0f;
+        var cur = gun.CurrentAngle.Theta + gun.AngleIncreaseModified.Theta - gun.AngleDecayModified.Theta * since;
 
         var min = gun.MinAngleModified.Theta;
         var max = gun.MaxAngleModified.Theta;
