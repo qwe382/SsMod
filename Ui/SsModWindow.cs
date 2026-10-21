@@ -20,7 +20,9 @@ public sealed class SsModWindow : DefaultWindow
         ("ESP", Esp.BuildTab),
         ("Персонажи", Characters.BuildTab),
         ("Другое", MassScanner.BuildTab),
-        ("Визуалы", Visuals.BuildTab),
+        // Одна вкладка «Gun-bot»; настройки, визуалы и трейсы — внутри неё
+        // своими вкладками.
+        ("Gun-bot", Visuals.BuildTab),
         ("Конфиг", Config.BuildTab),
         ("Дебаг", BuildDebug),
         ("Твики", BuildTweaks),

@@ -58,6 +58,14 @@ public static class StartupPatch
                 overlays.AddOverlay(new AmmoOverlay());
         });
 
+        // Трейсы от себя до персонажей (цвет по приоритету).
+        Step("трейсы", () =>
+        {
+            var overlays = IoCManager.Resolve<IOverlayManager>();
+            if (!overlays.HasOverlay<TracesOverlay>())
+                overlays.AddOverlay(new TracesOverlay());
+        });
+
         // Стартовый конфиг. Оверлеи внутри берут системы лениво, поэтому
         // создание здесь безопасно (в PostInit IEntityManager.System<T>() ещё
         // падает, см. комментарии в MelBot/GunBot/Esp/DamagePopup).

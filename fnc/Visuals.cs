@@ -26,11 +26,18 @@ public static class VisualSettings
     public static Color AmmoEmptyColor = new(1f, 0.3f, 0.3f);
     public static float AmmoOffsetY = 0f;
 
-    // Трейсы: линия от персонажа до цели и дуги вокруг цели (мелбот/gun-bot).
+    // Линия до цели и дуги вокруг неё (мелбот/gun-bot).
     public static bool TraceLine = true;
     public static bool TraceArcs = true;
     public static float TraceWidth = 2f;
     public static float TraceArcWidth = 12f;
+
+    // Трейсы: линии от себя до каждого персонажа, цвет по приоритету.
+    public static bool Traces = true;
+    public static float TracesWidth = 1.5f;
+    public static Color TracesFriend = new(0.3f, 1f, 0.4f, 0.7f);
+    public static Color TracesNeutral = new(0.35f, 0.6f, 1f, 0.6f);
+    public static Color TracesEnemy = new(1f, 0.3f, 0.3f, 0.75f);
 }
 
 // Дуга у курсора: сколько патронов осталось в стволе, и рядом текст
@@ -146,21 +153,113 @@ public sealed class AmmoOverlay : Overlay
     }
 }
 
-// Вкладка «Визуалы»: настройки дуги патронов, трейсов и вынесенный сюда gun-bot.
+// Трейсы: линия от себя до каждого персонажа на экране. Цвет — по приоритету:
+// друг зелёный, нейтрал синий, враг красный.
+public sealed class TracesOverlay : Overlay
+{
+    protected override void Draw(in OverlayDrawArgs args)
+    {
+        if (!VisualSettings.Traces)
+            return;
+
+        try
+        {
+            DrawTraces(args);
+        }
+        catch (Exception e)
+        {
+            // Оверлей рисуется каждый кадр: исключение завалило бы рендер.
+            Console.Error.WriteLine($"[SsMod] трейсы: {e.Message}");
+        }
+    }
+
+    private static void DrawTraces(in OverlayDrawArgs args)
+    {
+        var ent = IoCManager.Resolve<IEntityManager>();
+
+        if (IoCManager.Resolve<IPlayerManager>().LocalEntity is not { Valid: true } self)
+            return;
+
+        if (args.Viewport.Eye is null)
+            return;
+
+        var transform = ent.System<SharedTransformSystem>();
+        var map = transform.GetMapId(self);
+        var from = CombatVisuals.Screen(args, transform.GetWorldPosition(self));
+
+        // Всё рисуем в координатах DrawingHandle, поэтому видимая область — от
+        // нуля до размера вьюпорта.
+        var visible = new UIBox2(Vector2.Zero, (Vector2) args.ViewportBounds.Size);
+        var handle = args.ScreenHandle;
+        var width = MathF.Max(VisualSettings.TracesWidth, 0.5f);
+
+        foreach (var uid in Targeting.Alive(ent))
+        {
+            if (uid == self || transform.GetMapId(uid) != map)
+                continue;
+
+            var to = CombatVisuals.Screen(args, transform.GetWorldPosition(uid));
+
+            // За экран не тянем: линия через всю карту только мешает.
+            if (!visible.Contains(to))
+                continue;
+
+            CombatVisuals.ThickLine(handle, from, to, width, ColorOf(uid));
+        }
+    }
+
+    private static Color ColorOf(EntityUid uid)
+    {
+        return Priorities.Get(uid) switch
+        {
+            Priority.Friend => VisualSettings.TracesFriend,
+            Priority.Enemy => VisualSettings.TracesEnemy,
+            _ => VisualSettings.TracesNeutral,
+        };
+    }
+}
+
+// Одна вкладка «Gun-bot», а внутри — свои вкладки: настройки бота, визуалы
+// (дуга патронов, линия/дуги боя) и трейсы.
 public static class Visuals
 {
     public static Control BuildTab()
     {
-        var root = new BoxContainer { Orientation = BoxContainer.LayoutOrientation.Vertical };
+        var tabs = new TabContainer();
 
-        root.AddChild(AmmoSection());
-        root.AddChild(TraceSection());
+        var bot = GunBot.BuildTab();
+        tabs.AddChild(bot);
+        TabContainer.SetTabTitle(bot, "Настройки");
 
-        // Gun-bot целиком переехал сюда: наводка, авто-стрельба, перезарядка,
-        // передёргивание и снятие меток.
-        root.AddChild(Section("Gun-bot", Body(GunBot.BuildTab()), expanded: true));
+        var visuals = new BoxContainer { Orientation = BoxContainer.LayoutOrientation.Vertical };
+        visuals.AddChild(AmmoSection());
+        visuals.AddChild(CombatLineSection());
+        tabs.AddChild(visuals);
+        TabContainer.SetTabTitle(visuals, "Визуалы");
 
-        return root;
+        var traces = new BoxContainer { Orientation = BoxContainer.LayoutOrientation.Vertical };
+        traces.AddChild(TracesSection());
+        tabs.AddChild(traces);
+        TabContainer.SetTabTitle(traces, "Трейсы");
+
+        return tabs;
+    }
+
+    private static Control TracesSection()
+    {
+        var grid = Grid(
+            ("Толщина, px", Spin(VisualSettings.TracesWidth, 0.5f, 1, v => VisualSettings.TracesWidth = v)));
+
+        return Section("Трейсы до персонажей", Body(
+            Check("Показывать трейсы", VisualSettings.Traces, v => VisualSettings.Traces = v),
+            grid,
+            new Label { Text = "Друзья" },
+            ColorControl(VisualSettings.TracesFriend, c => VisualSettings.TracesFriend = c),
+            new Label { Text = "Нейтралы" },
+            ColorControl(VisualSettings.TracesNeutral, c => VisualSettings.TracesNeutral = c),
+            new Label { Text = "Враги" },
+            ColorControl(VisualSettings.TracesEnemy, c => VisualSettings.TracesEnemy = c)),
+            expanded: true);
     }
 
     private static Control AmmoSection()
@@ -181,13 +280,13 @@ public static class Visuals
             expanded: true);
     }
 
-    private static Control TraceSection()
+    private static Control CombatLineSection()
     {
         var grid = Grid(
             ("Линия, px", Spin(VisualSettings.TraceWidth, 1f, 0, v => VisualSettings.TraceWidth = v)),
             ("Дуги, px", Spin(VisualSettings.TraceArcWidth, 1f, 0, v => VisualSettings.TraceArcWidth = v)));
 
-        return Section("Трейсы", Body(
+        return Section("Линия и дуги боя", Body(
             Check("Линия до цели", VisualSettings.TraceLine, v => VisualSettings.TraceLine = v),
             Check("Дуги вокруг цели", VisualSettings.TraceArcs, v => VisualSettings.TraceArcs = v),
             grid));
