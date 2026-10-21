@@ -401,15 +401,6 @@ public sealed class EspOverlay : Overlay
             MathF.Max(a.Y, b.Y));
     }
 
-    private static RectF ViewRect(UIBox2i bounds)
-    {
-        return new RectF(
-            MathF.Min(Compat.BoxLeft(bounds), Compat.BoxRight(bounds)),
-            MathF.Min(Compat.BoxTop(bounds), Compat.BoxBottom(bounds)),
-            MathF.Max(Compat.BoxLeft(bounds), Compat.BoxRight(bounds)),
-            MathF.Max(Compat.BoxTop(bounds), Compat.BoxBottom(bounds)));
-    }
-
     private readonly struct RectF
     {
         public readonly float Left;

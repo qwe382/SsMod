@@ -156,8 +156,8 @@ public static class AimBot
     internal static bool InGunUpdate;
     internal static bool Bypass;
 
-    // Вьюпорт берём из оверлея: WorldToLocal + левый верхний угол вьюпорта —
-    // та же согласованная пара, что у мелбота (см. CombatVisuals).
+    // Вьюпорт берём из оверлея: он нужен, если MainViewport ещё недоступен.
+    // Основной путь — CombatVisuals.MainViewport (см. Absolute/Screen).
     private static IClydeViewport? _viewport;
     private static UIBox2 _bounds;
 

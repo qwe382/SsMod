@@ -35,11 +35,9 @@ namespace SsMod.Fnc;
 //
 // Поиск персонажей живёт в fnc/Targeting.cs (общий с gun-bot'ом), отрисовка —
 // в fnc/CombatVisuals.cs (общая с gun-bot'ом, отличается только цветом).
-// Позицию курсора берём через args.Viewport.LocalToWorld, а рис через
-// args.Viewport.WorldToLocal — это согласованная пара одного вьюпорта в одном
-// масштабе. Сравнивать WorldToScreen с MouseScreenPosition нельзя: у них разные
-// масштабы (Clyde.Viewport.cs:156 умножает на PixelsPerMeter и RenderScale,
-// ViewportContainer.cs:155 сверху делит на _viewportResolution).
+// Позицию курсора и точки на экране считает CombatVisuals через IViewportControl
+// главного вьюпорта: он учитывает и масштаб вьюпорта (_viewportResolution), и
+// его положение в окне, поэтому всё не зависит от разрешения и UI-масштаба.
 //
 // Через EyeManager.PixelToMap дистанцию тоже не считаем: EyeManager.cs:157 при
 // курсоре мимо вьюпорта молча отдаёт default (мир в нуле).
@@ -161,8 +159,8 @@ public sealed class MelBotOverlay : Overlay
                 return;
             }
 
-            // Координаты курсора приводим в мир через LocalToWorld самого вьюпорта
-            // (почему не PixelToMap и не WorldToScreen — см. комментарий к оверлею).
+            // Координаты курсора приводим в мир через вьюпорт (см. комментарий
+            // к оверлею и CombatVisuals.CursorWorld).
             var mouseWorld = CombatVisuals.CursorWorld(args, out var screenMouse);
             CurrentWindow = screenMouse.Window;
 
@@ -236,10 +234,8 @@ public sealed class MelBotOverlay : Overlay
             var selfWorld = Transform.GetWorldPosition(self);
             CurrentTargetInReach = AttackReach.InReach(_ent, self, target);
 
-            // Рисуем в ScreenSpace, поэтому мировые точки переводим в экранные
-            // WorldToLocal того же вьюпорта — он в тех же координатах, что и
-            // LocalToWorld, из которого получена mouseWorld. Саму линию и дуги
-            // рисует CombatVisuals: этот же визуал, но синим, рисует gun-bot.
+            // Саму линию и дуги рисует CombatVisuals: этот же визуал, но синим,
+            // рисует gun-bot.
             // Точка цели в абсолютных экранных пикселях: именно её подставляет
             // патч MouseScreenPosition, поэтому масштаб и положение вьюпорта
             // должны быть уже учтены (CombatVisuals.Absolute). Для рисования
