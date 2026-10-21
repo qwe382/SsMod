@@ -757,6 +757,7 @@ internal static class GunApi
     private static Type? _battery;
     private static Type? _chamber;
     private static Type? _cartridge;
+    private static Type? _revolver;
 
     // Тип может найтись в сборке, но не быть зарегистрированным в контент-паке
     // конкретного сервера (на 290/маринах BatteryAmmoProviderComponent — как
@@ -807,6 +808,7 @@ internal static class GunApi
         _battery = Compat.FindType("Content.Shared.Weapons.Ranged.Components.BatteryAmmoProviderComponent");
         _chamber = Compat.FindType("Content.Shared.Weapons.Ranged.Components.ChamberMagazineAmmoProviderComponent");
         _cartridge = Compat.FindType("Content.Shared.Weapons.Ranged.Components.CartridgeAmmoComponent");
+        _revolver = Compat.FindType("Content.Shared.Weapons.Ranged.Components.RevolverAmmoProviderComponent");
     }
 
     internal readonly struct Info
@@ -950,6 +952,61 @@ internal static class GunApi
         return HasComp(ent, uid, _hitscanAmmo) || HasComp(ent, uid, _hitscanCartridge);
     }
 
+    // Заряжено / ёмкость ствола (вместе с вставленным магазином). Для оверлея
+    // дуги патронов; те же числа читает и аимбот.
+    internal static (int Loaded, int Max) LoadedAmmo(IEntityManager ent, EntityUid gun)
+    {
+        Resolve();
+        return CountAmmo(ent, gun);
+    }
+
+    // Патроны во всех магазинах инвентаря: руки и надетые пояс/рюкзак/разгрузка.
+    // Сам ствол и его магазин не считаем — это первая цифра в индикаторе.
+    internal static int InventoryAmmo(IEntityManager ent, EntityUid self, EntityUid gun)
+    {
+        Resolve();
+
+        var total = 0;
+
+        if (ent.TryGetComponent(self, out HandsComponent? hands))
+        {
+            foreach (var (_, item) in HandItems(ent, self, hands))
+            {
+                if (item is { } held && held != gun)
+                    total += MagazineAmmo(ent, held);
+            }
+        }
+
+        var storageType = Compat.FindType("Content.Shared.Storage.StorageComponent");
+        if (storageType is null || !ent.TryGetComponent(self, out ContainerManagerComponent? manager))
+            return total;
+
+        foreach (var (_, container) in manager.Containers)
+        {
+            foreach (var worn in container.ContainedEntities)
+            {
+                if (!HasComp(ent, worn, storageType))
+                    continue;
+
+                foreach (var item in Containers(ent, worn, 2))
+                    total += MagazineAmmo(ent, item);
+            }
+        }
+
+        return total;
+    }
+
+    // Патроны предмета, если это магазин. Патрон россыпью (Cartridge) не считаем:
+    // в индикаторе просят именно магазины.
+    private static int MagazineAmmo(IEntityManager ent, EntityUid uid)
+    {
+        if (Comp(ent, uid, _ballistic) is null && Comp(ent, uid, _battery) is null)
+            return 0;
+
+        var (count, _) = CountAmmo(ent, uid);
+        return count > 0 ? count : 0;
+    }
+
     // Сумма по всем провайдерам, до которых дотягиваемся: сам ствол, магазин,
     // патронник. Значения берём из тех же полей, что читает клиентский UI.
     private static (int Count, int Max) CountAmmo(IEntityManager ent, EntityUid gun)
@@ -972,6 +1029,24 @@ internal static class GunApi
             {
                 count += Get<int>(battery, "Shots");
                 max += Get<int>(battery, "Capacity");
+                found = true;
+                continue;
+            }
+
+            // Револьвер: патроны лежат в барабане (Chambers), true — не стрелян.
+            if (_revolver is not null && Comp(ent, uid, _revolver) is { } revolver)
+            {
+                max += Get<int>(revolver, "Capacity");
+
+                if (GetField(revolver, "Chambers")?.GetValue(revolver) is Array chambers)
+                {
+                    foreach (var value in chambers)
+                    {
+                        if (value is true)
+                            count++;
+                    }
+                }
+
                 found = true;
                 continue;
             }

@@ -49,6 +49,15 @@ public static class StartupPatch
                 overlays.AddOverlay(new GunBotOverlay());
         });
 
+        // Дуга патронов у курсора. Внутри сама проверяет галочку из вкладки
+        // «Визуалы», поэтому висит всегда.
+        Step("дуга патронов", () =>
+        {
+            var overlays = IoCManager.Resolve<IOverlayManager>();
+            if (!overlays.HasOverlay<AmmoOverlay>())
+                overlays.AddOverlay(new AmmoOverlay());
+        });
+
         // Стартовый конфиг. Оверлеи внутри берут системы лениво, поэтому
         // создание здесь безопасно (в PostInit IEntityManager.System<T>() ещё
         // падает, см. комментарии в MelBot/GunBot/Esp/DamagePopup).

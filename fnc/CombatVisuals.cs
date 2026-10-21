@@ -27,13 +27,10 @@ internal static class CombatVisuals
     // Сегментов на дугу: чем больше, тем глаже обводка.
     private const int SegmentsPerArc = 32;
 
-    // Толщины в пикселях. Толщины у DrawLine в движке нет: он рисует GL_LINES
-    // из двух вершин (Clyde.Rendering.cs:718), то есть всегда 1 px. Поэтому вся
-    // толщина делается заливкой TriangleFan — см. ThickLine.
-    public const float LineWidth = 2f;
-
-    // Дуги мелбота просили сделать жирнее (было 4), потом ещё вдвое чётче.
-    public const float ArcWidth = 12f;
+    // Толщины в пикселях задаются в настройках визуалов (VisualSettings):
+    // у DrawLine толщины нет, движок рисует GL_LINES из двух вершин
+    // (Clyde.Rendering.cs:718), то есть всегда 1 px. Поэтому вся толщина —
+    // заливка TriangleFan, см. ThickLine.
 
     // Цвета визуала цели.
     public readonly record struct Style(Color Line, Color Arc);
@@ -49,8 +46,11 @@ internal static class CombatVisuals
     public static void Draw(DrawingHandleScreen handle, Vector2 fromScreen, Vector2 toScreen,
         float arcRadius, Style style, TimeSpan now)
     {
-        ThickLine(handle, fromScreen, toScreen, LineWidth, style.Line);
-        DrawArcs(handle, toScreen, arcRadius, style.Arc, now);
+        if (VisualSettings.TraceLine)
+            ThickLine(handle, fromScreen, toScreen, VisualSettings.TraceWidth, style.Line);
+
+        if (VisualSettings.TraceArcs)
+            DrawArcs(handle, toScreen, arcRadius, style.Arc, now);
     }
 
     // Абсолютные экранные пиксели (то, что ждут ScreenCoordinates и патчи мыши).
@@ -107,6 +107,13 @@ internal static class CombatVisuals
     // _uiManager.MouseGetControl и молча отдаёт мир в нуле, если курсор мимо
     // вьюпорта. Здесь берём вьюпорт напрямую — он компенсирует и масштаб
     // вьюпорта, и его положение в окне.
+    // Курсор в координатах DrawingHandle — для рисования прямо у него.
+    public static Vector2 CursorScreen(in OverlayDrawArgs args, out ScreenCoordinates screenMouse)
+    {
+        screenMouse = IoCManager.Resolve<IInputManager>().MouseScreenPosition;
+        return ToHandle(args, screenMouse.Position);
+    }
+
     public static Vector2 CursorWorld(in OverlayDrawArgs args, out ScreenCoordinates screenMouse)
     {
         screenMouse = IoCManager.Resolve<IInputManager>().MouseScreenPosition;
@@ -142,7 +149,8 @@ internal static class CombatVisuals
             {
                 var a0 = start + span * s / SegmentsPerArc;
                 var a1 = start + span * (s + 1) / SegmentsPerArc;
-                ThickLine(handle, Point(center, a0, radius), Point(center, a1, radius), ArcWidth, color);
+                ThickLine(handle, Point(center, a0, radius), Point(center, a1, radius),
+                    VisualSettings.TraceArcWidth, color);
             }
         }
     }
