@@ -352,11 +352,8 @@ public sealed class GunBotOverlay : Overlay
         var radiusTiles = MathF.Max(AimBot.ConeTiles * VisualSettings.SpreadScale, VisualSettings.SpreadMinTiles);
         var radius = CombatVisuals.Radius(args, targetWorld, radiusTiles);
 
-        if (VisualSettings.SpreadEnabled && VisualSettings.SpreadArcs)
+        if (VisualSettings.SpreadEnabled && VisualSettings.TraceArcs)
             CombatVisuals.Arcs(handle, toScreen, radius, CombatVisuals.Ranged.Arc, _timing.RealTime);
-
-        if (VisualSettings.SpreadEnabled && VisualSettings.SpreadCone)
-            DrawCone(handle, args, selfWorld, targetWorld, AimBot.SpreadDeg * VisualSettings.SpreadScale);
 
         if (!VisualSettings.SpreadDegrees)
             return;
@@ -391,12 +388,9 @@ public sealed class GunBotOverlay : Overlay
         var center = CombatVisuals.CursorScreen(args, out _) + new Vector2(0f, VisualSettings.SpreadCursorOffsetY);
         var radius = CombatVisuals.Radius(args, world, radiusTiles);
 
-        if (VisualSettings.SpreadArcs)
+        if (VisualSettings.TraceArcs)
             CombatVisuals.Arcs(handle: args.ScreenHandle, center: center, radius: radius,
                 color: CombatVisuals.Ranged.Arc, now: _timing.RealTime);
-
-        if (VisualSettings.SpreadCone)
-            DrawCone(args.ScreenHandle, args, selfWorld, world, deg * VisualSettings.SpreadScale);
 
         if (!VisualSettings.SpreadDegrees)
             return;
@@ -405,61 +399,6 @@ public sealed class GunBotOverlay : Overlay
         var pos = center + new Vector2(radius + 6f, -6f);
         Compat.DrawText(args.ScreenHandle, _font, pos + new Vector2(1f, 1f), text, 1f, new Color(0f, 0f, 0f, 0.7f));
         Compat.DrawText(args.ScreenHandle, _font, pos, text, 1f, VisualSettings.SpreadTextColor);
-    }
-
-    // Конус разброса: два луча от стрелка под ±halfDeg и дуга на конце —
-    // видно, куда реально может уйти выстрел на этой дистанции.
-    private static void DrawCone(DrawingHandleScreen handle, in OverlayDrawArgs args,
-        Vector2 fromWorld, Vector2 toWorld, float halfDeg)
-    {
-        var delta = toWorld - fromWorld;
-        var length = delta.Length();
-        if (length < 0.05f)
-            return;
-
-        var dir = delta / length;
-        var half = Math.Clamp(halfDeg, 0f, 45f) * (MathF.PI / 180f);
-
-        var from = CombatVisuals.Screen(args, fromWorld);
-        var left = CombatVisuals.Screen(args, fromWorld + Rotate(dir, half) * length);
-        var right = CombatVisuals.Screen(args, fromWorld + Rotate(dir, -half) * length);
-
-        var width = MathF.Max(VisualSettings.TraceWidth, 0.5f);
-        var color = CombatVisuals.Ranged.Arc;
-
-        CombatVisuals.ThickLine(handle, from, left, width, color);
-        CombatVisuals.ThickLine(handle, from, right, width, color);
-
-        // Дуга на конце конуса — по экранным углам, с учётом зума.
-        var startAngle = MathF.Atan2(left.Y - from.Y, left.X - from.X);
-        var endAngle = MathF.Atan2(right.Y - from.Y, right.X - from.X);
-        var sweep = endAngle - startAngle;
-
-        while (sweep > MathF.PI)
-            sweep -= MathF.Tau;
-        while (sweep < -MathF.PI)
-            sweep += MathF.Tau;
-
-        var radius = (left - from).Length();
-        const int steps = 24;
-
-        for (var i = 0; i < steps; i++)
-        {
-            var a0 = startAngle + sweep * i / steps;
-            var a1 = startAngle + sweep * (i + 1) / steps;
-
-            CombatVisuals.ThickLine(handle,
-                from + new Vector2(MathF.Cos(a0), MathF.Sin(a0)) * radius,
-                from + new Vector2(MathF.Cos(a1), MathF.Sin(a1)) * radius,
-                width, color);
-        }
-    }
-
-    private static Vector2 Rotate(Vector2 v, float angle)
-    {
-        var cos = MathF.Cos(angle);
-        var sin = MathF.Sin(angle);
-        return new Vector2(v.X * cos - v.Y * sin, v.X * sin + v.Y * cos);
     }
 
     // Красная — точка предикта (куда надо стрелять), синяя — точка ПИД, которая
