@@ -713,7 +713,11 @@ public static class AimBot
             var wantWield = !info.Wielded
                             && (info.RequiresWield || GunApi.ShouldRewield(gunUid));
 
-            if (wantWield && AimBotSettings.AutoWield)
+            // Во время перезарядки не берём в две руки: перезарядка сама снимает
+            // хват ради свободной руки, и без этого запрета Maintain тут же
+            // ставил хват обратно — вторая рука так и не освобождалась, цикл
+            // «снять хват — поставить хват» крутился бесконечно.
+            if (wantWield && AimBotSettings.AutoWield && !GunApi.Reloading)
                 GunApi.TryUseInHand(ent, now, gunUid);
 
             if (info.Wielded)
