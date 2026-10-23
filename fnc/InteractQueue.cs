@@ -66,9 +66,19 @@ internal static class InteractQueue
     internal static EntityUid? Target => _system == null ? null : _target;
 
     // Вызов из префикса на UserInteraction: вне радиуса — запомнить клик.
+    // Тот же клик при перипредикте гоняется по несколько раз — таймер при
+    // этом не сбрасываем, иначе ожидание длится вечно.
     internal static void Enqueue(SharedInteractionSystem system, EntityUid user, EntityUid target, bool alt,
         IGameTiming timing)
     {
+        if (_system != null && _target == target)
+        {
+            _system = system;
+            _user = user;
+            _alt = alt;
+            return;
+        }
+
         _system = system;
         _user = user;
         _target = target;
@@ -117,6 +127,17 @@ internal static class InteractQueue
         }
 
         if (timing.CurTime >= _deadline)
+        {
+            Console.WriteLine($"[SsMod] предикт: не дождались цель {_target}");
+            Cancel();
+            return;
+        }
+
+        // Цель уже при нас (в руке или инвентаре — родитель сущности мы сами):
+        // повторный клик по такому предмету означает «использовать в руке»
+        // (выпить стакан, активировать мышь), а не подобрать. Ждать нечего.
+        if (ent.TryGetComponent(_target, out TransformComponent? held)
+            && held.ParentUid == _user)
         {
             Cancel();
             return;
@@ -295,6 +316,16 @@ internal static class InteractQueuePatch
         // Клик по цели в радиусе — действие выполняется обычным путём,
         // прежнее ожидание снимается.
         if (InteractQueue.InRange(__instance, user, uid))
+        {
+            InteractQueue.Cancel();
+            return;
+        }
+
+        // Предмет уже при нас (в руке/инвентаре, но дальность «не та» из-за
+        // перипредикта старых команд): ждать нечего, иначе повтор кликнул бы
+        // по нему как «использовать в руке».
+        var ent = IoCManager.Resolve<IEntityManager>();
+        if (ent.TryGetComponent(uid, out TransformComponent? xform) && xform.ParentUid == user)
         {
             InteractQueue.Cancel();
             return;
