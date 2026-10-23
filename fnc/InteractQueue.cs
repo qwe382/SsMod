@@ -33,9 +33,12 @@ internal static class InteractQueue
     private static readonly Color RingBack = new(0f, 0f, 0f, 0.45f);
     private static readonly Color RingFill = new(0.3f, 0.9f, 1f, 0.9f);
 
-    // Готовые кадры таймера из ресурсов игры (радиальный открут).
+    // Готовые кадры таймера из ресурсов игры (радиальный открут). На части
+    // форков (fish) этих текстур нет — пробуем один раз, дальше рисуем кольцо.
     private const string CooldownBase = "/Textures/Interface/Inventory/cooldown-";
     private const int CooldownFrames = 9;
+    private static bool _iconProbed;
+    private static bool _iconOk;
 
     // Микрозадержка перед повтором: пара кадров, чтобы граничный кадр (дальность
     // дёргается на границе радиуса) не дал повтору уйти впустую. На ощущения
@@ -287,8 +290,17 @@ internal static class InteractQueue
         var left = (float) (_deadline - timing.CurTime).TotalSeconds;
         var fraction = Math.Clamp(left / _total, 0f, 1f);
 
+        if (!_iconProbed)
+        {
+            _iconProbed = true;
+            _iconOk = Icons.Get($"{CooldownBase}0.png") is not null;
+
+            if (!_iconOk)
+                Console.WriteLine("[SsMod] предикт: кадров таймера нет — рисую кольцо");
+        }
+
         var frame = (int) MathF.Round((1f - fraction) * (CooldownFrames - 1));
-        var icon = Icons.Get($"{CooldownBase}{frame}.png");
+        var icon = _iconOk ? Icons.Get($"{CooldownBase}{frame}.png") : null;
 
         if (icon is { } texture)
         {

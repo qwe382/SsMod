@@ -1315,7 +1315,10 @@ internal static class GunApi
 
             var active = ActiveHandName(hands);
             if (active is null)
+            {
+                Diag(ent, gun, hands, self, "нет активной руки");
                 return;
+            }
 
             var items = HandItems(ent, self, hands).ToList();
 
@@ -1331,7 +1334,10 @@ internal static class GunApi
             }
 
             if (gunHand is null)
+            {
+                Diag(ent, gun, hands, self, "ствол не в руках");
                 return;
+            }
 
             var whitelist = GunSlotWhitelist(ent, gun, out _);
 
@@ -1377,7 +1383,10 @@ internal static class GunApi
             // 2) В руках магазина нет — тянем из надетой сумки/пояса/рюкзака.
             if (!FindStoredMag(ent, self, gun, whitelist, out var stored, out var storage))
             {
-                Diag(ent, gun, hands, self, "магазина нет ни в руках, ни в сумках");
+                // Магазины кончились совсем: без долгой паузы бот долбит
+                // перезарядку каждые 0.8 с и заливает лог одной строкой.
+                _lastReload = now + TimeSpan.FromSeconds(30);
+                Diag(ent, gun, hands, self, "магазина нет ни в руках, ни в сумках (пауза 30 с)");
                 return;
             }
 
