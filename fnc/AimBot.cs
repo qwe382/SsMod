@@ -710,10 +710,6 @@ public static class AimBot
 
             var info = GunApi.Read(ent, gunUid, gun);
 
-            // Двуручное: освобождение второй руки и взятие в руки — каждый кадр,
-            // независимо от цели и боевого режима.
-            GunApi.ServiceWield(ent, self, now);
-
             var wantWield = !info.Wielded
                             && (info.RequiresWield || GunApi.ShouldRewield(gunUid));
 
@@ -1163,7 +1159,7 @@ internal static class GunApi
 
     public static void TryUseInHand(IEntityManager ent, TimeSpan now, EntityUid gun = default)
     {
-        if (_wieldStage != WieldStage.Idle || _useInHandFailed || now - _lastUseInHand < TimeSpan.FromSeconds(1))
+        if (_useInHandFailed || now - _lastUseInHand < TimeSpan.FromSeconds(1))
             return;
 
         _lastUseInHand = now;
@@ -1231,96 +1227,10 @@ internal static class GunApi
 
     // ---------------------------------------------- освобождение второй руки
 
-    private enum WieldStage
-    {
-        Idle,
-        Switching,
-        Dropped,
-    }
-
-    private static WieldStage _wieldStage;
-    private static string? _wieldFreeHand;
-    private static string? _wieldGunHand;
-    private static TimeSpan _wieldAt;
-
-    internal static bool FreeingHand => _wieldStage != WieldStage.Idle;
-
-    // Переключаемся на занятую руку, выбрасываем из неё вещь и возвращаем
-    // активную руку на ствол — после этого TryUseInHand сможет взять в две руки.
-    public static void ServiceWield(IEntityManager ent, EntityUid self, TimeSpan now)
-    {
-        if (_wieldStage == WieldStage.Idle)
-            return;
-
-        try
-        {
-            if (now - _wieldAt > TimeSpan.FromSeconds(3))
-            {
-                if (_wieldGunHand is { } back)
-                    RaiseHandEvent(ent, SetHandEvent, back);
-
-                _wieldStage = WieldStage.Idle;
-                Note("[SsMod] две руки: не смогла освободить руку");
-                return;
-            }
-
-            if (!ent.TryGetComponent(self, out HandsComponent? hands))
-            {
-                _wieldStage = WieldStage.Idle;
-                return;
-            }
-
-            var active = ActiveHandName(hands);
-
-            switch (_wieldStage)
-            {
-                case WieldStage.Switching:
-                    if (active != _wieldFreeHand)
-                        return;
-
-                    TryDrop(now);
-                    _wieldStage = WieldStage.Dropped;
-                    _wieldAt = now;
-                    return;
-
-                case WieldStage.Dropped:
-                    if (now - _wieldAt < TimeSpan.FromSeconds(0.25))
-                        return;
-
-                    if (_wieldFreeHand is { } free && HeldInHand(ent, self, free) is { } left)
-                    {
-                        // Рука ещё не опустела: дроп мог не пройти (клиент и
-                        // сервер разошлись по активной руке) — повторяем, а не
-                        // ждём таймаут молча.
-                        if (IsVirtual(ent, left))
-                        {
-                            _wieldStage = WieldStage.Idle;
-                            return;
-                        }
-
-                        if (active != free)
-                            RaiseHandEvent(ent, SetHandEvent, free);
-                        else
-                            TryDrop(now);
-
-                        return;
-                    }
-
-                    if (_wieldGunHand is { } gunHand)
-                        RaiseHandEvent(ent, SetHandEvent, gunHand);
-
-                    _wieldStage = WieldStage.Idle;
-                    _lastUseInHand = TimeSpan.Zero;
-                    return;
-            }
-        }
-        catch (Exception e)
-        {
-            _wieldStage = WieldStage.Idle;
-            _lastUseInHand = TimeSpan.Zero;
-            Note($"[SsMod] две руки: {e.Message}");
-        }
-    }
+    // Прежний автомат «переключиться на вторую руку — выкинуть — вернуться»
+    // удалён: TryWield сам выкидывает помеху (TrySpawnVirtualItemInHand с
+    // dropOthers), а стадии никогда не запускались (поля рук не заполнялись,
+    // см. warning CS0649). TryUseInHand выше делает всё сам.
 
     // --------------------------------------------------------------- перезарядка
 
