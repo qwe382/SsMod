@@ -46,8 +46,10 @@ internal static class InteractQueue
     private static EntityUid _user;
     private static EntityUid _target;
 
-    // Альтернативный клик (alt+LMB) или обычный.
-    private static bool _alt;
+    // Какое действие ждать: обычный клик, альт, активация (E) или тяга.
+    // Повтор по нажатию той же самой клавиши-действия.
+    private static Robust.Shared.Input.BoundKeyFunction _function =
+        Robust.Shared.Input.EngineKeyFunctions.Use;
 
     // Повтор выпускается самим модом: в это время префикс не должен ни
     // перезаписывать, ни заново ставить ожидание.
@@ -68,21 +70,21 @@ internal static class InteractQueue
     // Вызов из префикса на UserInteraction: вне радиуса — запомнить клик.
     // Тот же клик при перипредикте гоняется по несколько раз — таймер при
     // этом не сбрасываем, иначе ожидание длится вечно.
-    internal static void Enqueue(SharedInteractionSystem system, EntityUid user, EntityUid target, bool alt,
-        IGameTiming timing)
+    internal static void Enqueue(SharedInteractionSystem system, EntityUid user, EntityUid target,
+        Robust.Shared.Input.BoundKeyFunction function, IGameTiming timing)
     {
         if (_system != null && _target == target)
         {
             _system = system;
             _user = user;
-            _alt = alt;
+            _function = function;
             return;
         }
 
         _system = system;
         _user = user;
         _target = target;
-        _alt = alt;
+        _function = function;
         _total = MathF.Max(Seconds, 0.1f);
         _deadline = timing.CurTime + TimeSpan.FromSeconds(_total);
         _wasInRange = false;
@@ -181,9 +183,7 @@ internal static class InteractQueue
         var screen = new ScreenCoordinates(
             IoCManager.Resolve<Robust.Client.Graphics.IEyeManager>().WorldToScreen(world), default);
 
-        var function = _alt
-            ? Content.Shared.Input.ContentKeyFunctions.AltActivateItemInWorld
-            : Robust.Shared.Input.EngineKeyFunctions.Use;
+        var function = _function;
 
         // Полная пара Down + Up, как у реального клика. Взаимодействие делает
         // Down (PointerInputCmdHandler игнорирует Up), но без Up сервер считает
@@ -345,7 +345,57 @@ internal static class InteractQueuePatch
         }
 
         // Не прошёл по дальности: запоминаем и ждём, пока цель подтянется.
-        InteractQueue.Enqueue(__instance, user, uid, altInteract,
+        InteractQueue.Enqueue(__instance, user, uid,
+            altInteract
+                ? Content.Shared.Input.ContentKeyFunctions.AltActivateItemInWorld
+                : Robust.Shared.Input.EngineKeyFunctions.Use,
+            IoCManager.Resolve<IGameTiming>());
+    }
+}
+
+// E (активация предмета) и тяга за верёвку: отдельные бинды, до UserInteraction
+// не доходят. Патч по имени: методы приватные, на любой версии с другой
+// сигнатурой Entry переживает сбой класса.
+[HarmonyPatch(typeof(SharedInteractionSystem), "HandleActivateItemInWorld")]
+[HarmonyPatch(typeof(SharedInteractionSystem), "HandleTryPullObject")]
+internal static class InteractQueueBindPatch
+{
+    private static void Prefix(SharedInteractionSystem __instance, System.Reflection.MethodBase __originalMethod,
+        EntityUid uid)
+    {
+        if (InteractQueue.Retrying)
+            return;
+
+        if (!InteractQueue.Enabled || uid is not { Valid: true })
+        {
+            InteractQueue.Cancel();
+            return;
+        }
+
+        var ent = IoCManager.Resolve<IEntityManager>();
+        var player = IoCManager.Resolve<Robust.Client.Player.IPlayerManager>();
+
+        if (player.LocalEntity is not { Valid: true } self)
+            return;
+
+        // Уже при нас — действие выполнится обычным путём.
+        if (ent.TryGetComponent(uid, out TransformComponent? xform) && xform.ParentUid == self)
+        {
+            InteractQueue.Cancel();
+            return;
+        }
+
+        if (InteractQueue.InRange(__instance, self, uid))
+        {
+            InteractQueue.Cancel();
+            return;
+        }
+
+        var function = __originalMethod.Name == "HandleActivateItemInWorld"
+            ? Content.Shared.Input.ContentKeyFunctions.ActivateItemInWorld
+            : Content.Shared.Input.ContentKeyFunctions.TryPullObject;
+
+        InteractQueue.Enqueue(__instance, self, uid, function,
             IoCManager.Resolve<IGameTiming>());
     }
 }
