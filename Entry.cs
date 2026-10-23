@@ -29,7 +29,11 @@ public static class ModEntry
 
             foreach (var type in SafeTypes(assembly))
             {
-                if (type.GetCustomAttribute<HarmonyPatch>() == null)
+                // GetCustomAttributes, не GetCustomAttribute: у класса может быть
+                // несколько [HarmonyPatch] (патч сразу двух методов), а одиночный
+                // GetCustomAttribute на этом бросает AmbiguousMatchException —
+                // и падала вся загрузка мода целиком.
+                if (!type.GetCustomAttributes<HarmonyPatch>().Any())
                     continue;
 
                 try

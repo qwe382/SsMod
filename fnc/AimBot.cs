@@ -713,7 +713,10 @@ public static class AimBot
             var wantWield = !info.Wielded
                             && (info.RequiresWield || GunApi.ShouldRewield(gunUid));
 
-            if (wantWield && AimBotSettings.AutoWield)
+            // Во время перезарядки не берём в две руки: перезарядка сама снимает
+            // хват ради свободной руки, а этот вызов тут же ставил хват обратно —
+            // рука не освобождалась никогда.
+            if (wantWield && AimBotSettings.AutoWield && !GunApi.Reloading)
                 GunApi.TryUseInHand(ent, now, gunUid);
 
             if (info.Wielded)
@@ -1495,7 +1498,11 @@ internal static class GunApi
                     RaiseHandEvent(ent, SetHandEvent, back);
 
                 _stage = ReloadStage.Idle;
-                Note("[SsMod] перезарядка: не успела, отмена");
+                // Пауза перед следующим заходом: без неё неудачная стадия
+                // крутилась по кругу и дёргала ствол.
+                _lastReload = now + TimeSpan.FromSeconds(10);
+
+                Note("[SsMod] перезарядка: не успела, пауза 10 с");
                 return;
             }
 
@@ -2064,11 +2071,25 @@ internal static class GunApi
                 return ExecuteVerb(gun, verb);
 
             // Запасной путь на случай другой локали: лямбда объявлена внутри
-            // SharedWieldableSystem.AddToggleWieldVerb (в сгенерированном
-            // классе-замыкании, поэтому смотрим и имя метода).
+            // SharedWieldableSystem.AddToggleWieldVerb в классе-замыкании
+            // (<>c__DisplayClass), чей родитель — сама система. Имя ищем по
+            // всей цепочке declaring-типов: один уровень пропускал вербу.
+            var declaring = act?.DeclaringType;
+            var fromWieldable = false;
+
+            while (declaring is not null)
+            {
+                if (declaring.Name.Contains("Wieldable"))
+                {
+                    fromWieldable = true;
+                    break;
+                }
+
+                declaring = declaring.DeclaringType;
+            }
+
             var isWieldable = act is not null
-                              && (act.Name.Contains("AddToggleWieldVerb")
-                                  || (act.DeclaringType?.Name.Contains("Wieldable") ?? false));
+                              && (act.Name.Contains("AddToggleWieldVerb") || fromWieldable);
 
             if (isWieldable)
                 fallback ??= verb;

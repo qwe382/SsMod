@@ -450,14 +450,14 @@ internal static class InteractQueueBindPatch
 }
 
 // Пункты контекстного меню (глаголы): клиент шлёт их отдельным событием,
-// до UserInteraction не доходят. Клиентские глаголы (ClientExclusive) —
-// локальные, им дальность не нужна, пропускаем.
+// до UserInteraction не доходят. Оригинал не блокируем: часть глаголов
+// сервер выполняет на любой дистанции (призрачные, служебные), и блокировка
+// их молча съедала. Ожидание — запасной повтор для дальностных глаголов
+// (тяга и т.п.), которые сервер отверг по дальности.
 [HarmonyPatch(typeof(Content.Client.Verbs.VerbSystem), nameof(Content.Client.Verbs.VerbSystem.ExecuteVerb),
     new[] { typeof(Robust.Shared.GameObjects.NetEntity), typeof(Content.Shared.Verbs.Verb) })]
 internal static class InteractQueueVerbPatch
 {
-    // false у префикса — не выполняем оригинал: сервер его всё равно отвергнет
-    // по дальности, а так вместо попапа «слишком далеко» встанет ожидание.
     private static bool Prefix(Content.Shared.Verbs.Verb verb,
         Robust.Shared.GameObjects.NetEntity target)
     {
@@ -483,7 +483,7 @@ internal static class InteractQueueVerbPatch
         }
 
         InteractQueue.EnqueueVerb(self, uid.Value, verb, IoCManager.Resolve<IGameTiming>());
-        return false;
+        return true;
     }
 }
 
