@@ -37,10 +37,10 @@ internal static class InteractQueue
     private const string CooldownBase = "/Textures/Interface/Inventory/cooldown-";
     private const int CooldownFrames = 9;
 
-    // Микрозадержка перед повтором: цель должна побыть в радиусе, чтобы
-    // граничный кадр (дальность ещё дёргается, сервер видит иначе) не дал
-    // повтору уйти впустую.
-    private const float InRangeDelay = 0.15f;
+    // Микрозадержка перед повтором: пара кадров, чтобы граничный кадр (дальность
+    // дёргается на границе радиуса) не дал повтору уйти впустую. На ощущения
+    // не влияет — срабатывает мгновенно.
+    private const float InRangeDelay = 0.05f;
 
     private static SharedInteractionSystem? _system;
     private static EntityUid _user;
