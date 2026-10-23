@@ -76,6 +76,8 @@ internal static class InteractQueue
         _total = MathF.Max(Seconds, 0.1f);
         _deadline = timing.CurTime + TimeSpan.FromSeconds(_total);
         _wasInRange = false;
+
+        Console.WriteLine($"[SsMod] предикт: цель {target} вне радиуса, ждём {_total:0.0} с");
     }
 
     public static void Cancel()
@@ -159,17 +161,21 @@ internal static class InteractQueue
             ? Content.Shared.Input.ContentKeyFunctions.AltActivateItemInWorld
             : Robust.Shared.Input.EngineKeyFunctions.Use;
 
+        // Down, не Up: PointerInputCmdHandler игнорирует Up (ignoreUp) и
+        // молча выбрасывает такую команду.
         var msg = new Robust.Shared.Input.ClientFullInputCmdMessage(
             timing.CurTick,
             default,
             inputManager.NetworkBindMap.KeyFunctionID(function),
             xform.Coordinates,
             screen,
-            Robust.Shared.Input.BoundKeyState.Up,
+            Robust.Shared.Input.BoundKeyState.Down,
             _target);
 
         Cancel();
         Retrying = true;
+
+        Console.WriteLine($"[SsMod] предикт: цель в радиусе, повторяю клик по {_target}");
 
         try
         {
@@ -177,7 +183,7 @@ internal static class InteractQueue
         }
         catch (Exception e)
         {
-            Console.Error.WriteLine($"[SsMod] предикт: повтор клика не удался: {e.Message}");
+            Console.WriteLine($"[SsMod] предикт: повтор клика не удался: {e.Message}");
         }
         finally
         {
@@ -200,19 +206,20 @@ internal static class InteractQueue
 
         if (icon is { } texture)
         {
-            const float size = 44f;
-            var tint = new Color(1f, 1f, 1f, 0.25f + 0.75f * fraction);
+            // Тёмная подложка, чтобы иконка читалась на любом фоне.
+            const float size = 56f;
+            handle.DrawCircle(center, size / 2f + 4f, new Color(0f, 0f, 0f, 0.6f));
             handle.DrawTextureRect(texture,
-                new UIBox2(center - new Vector2(size / 2f), center + new Vector2(size / 2f)), tint);
+                new UIBox2(center - new Vector2(size / 2f), center + new Vector2(size / 2f)), Color.White);
             return;
         }
 
-        CombatVisuals.Circle(handle, center, RingRadius, RingWidth, RingBack);
+        // Нет текстур (чужой форк) — яркий рисованный круг.
+        CombatVisuals.Circle(handle, center, RingRadius, RingWidth + 2f, RingBack);
 
         if (fraction > 0.01f)
-            Arc(handle, center, RingRadius, RingWidth, fraction, RingFill);
+            Arc(handle, center, RingRadius, RingWidth + 2f, fraction, RingFill);
 
-        // Точка в центре — куда применится действие.
         handle.DrawCircle(center, RingWidth, RingFill);
     }
 
@@ -336,7 +343,7 @@ internal sealed class InteractQueueOverlay : Overlay
         }
         catch (Exception e)
         {
-            Console.Error.WriteLine($"[SsMod] предикт: оверлей: {e.Message}");
+            Console.WriteLine($"[SsMod] предикт: оверлей: {e.Message}");
         }
     }
 }
