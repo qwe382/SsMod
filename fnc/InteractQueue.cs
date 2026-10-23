@@ -86,16 +86,19 @@ internal static class InteractQueue
         _wasInRange = false;
     }
 
-    // Общая для версий проверка дальности: перегрузки InRangeUnobstructed
-    // меняются между версиями, вариант с координатами есть везде (см.
-    // QuickFlush).
+    // Общая для версий проверка дальности — как у самой игры: перегрузка с
+    // EntityUid-целью исключает цель из луча (закрытый шлюз не перекрывает сам
+    // себя), плюс поблажки для предметов в стенах и настенных панелей.
+    // Вариант по координатам этого не делает и для твёрдых целей всегда
+    // отвечал «перекрыто». Перегрузка есть на 264/276/277/290.
     internal static bool InRange(SharedInteractionSystem interaction, EntityUid user, EntityUid target)
     {
         var ent = IoCManager.Resolve<IEntityManager>();
         if (!ent.TryGetComponent(target, out TransformComponent? xform))
             return false;
 
-        return interaction.InRangeUnobstructed(user, xform.Coordinates);
+        var origin = ent.System<SharedTransformSystem>().GetMapCoordinates(user);
+        return interaction.InRangeUnobstructed(origin, target);
     }
 
     // Раз в кадр из оверлея: проверяем ожидание и, если цель в радиусе,
