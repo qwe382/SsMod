@@ -46,10 +46,11 @@ internal static class InteractQueue
     private static EntityUid _user;
     private static EntityUid _target;
 
-    // Какое действие ждать: обычный клик, альт, активация (E) или тяга.
-    // Повтор по нажатию той же самой клавиши-действия.
+    // Какое действие ждать: обычный клик, альт, активация (E), тяга — или
+    // глагол из контекстного меню. Повтор делает то же самое действие.
     private static Robust.Shared.Input.BoundKeyFunction _function =
         Robust.Shared.Input.EngineKeyFunctions.Use;
+    private static Content.Shared.Verbs.Verb? _verb;
 
     // Повтор выпускается самим модом: в это время префикс не должен ни
     // перезаписывать, ни заново ставить ожидание.
@@ -67,13 +68,13 @@ internal static class InteractQueue
     // Цель ожидания — для рисования круга.
     internal static EntityUid? Target => _system == null ? null : _target;
 
-    // Вызов из префикса на UserInteraction: вне радиуса — запомнить клик.
-    // Тот же клик при перипредикте гоняется по несколько раз — таймер при
-    // этом не сбрасываем, иначе ожидание длится вечно.
+    // Вызов из префиксов: вне радиуса — запомнить действие. Тот же клик при
+    // перипредикте гоняется по несколько раз — таймер не сбрасываем, иначе
+    // ожидание длится вечно.
     internal static void Enqueue(SharedInteractionSystem system, EntityUid user, EntityUid target,
         Robust.Shared.Input.BoundKeyFunction function, IGameTiming timing)
     {
-        if (_system != null && _target == target)
+        if (_system != null && _target == target && _verb == null)
         {
             _system = system;
             _user = user;
@@ -85,6 +86,7 @@ internal static class InteractQueue
         _user = user;
         _target = target;
         _function = function;
+        _verb = null;
         _total = MathF.Max(Seconds, 0.1f);
         _deadline = timing.CurTime + TimeSpan.FromSeconds(_total);
         _wasInRange = false;
@@ -92,9 +94,32 @@ internal static class InteractQueue
         Console.WriteLine($"[SsMod] предикт: цель {target} вне радиуса, ждём {_total:0.0} с");
     }
 
+    // Глагол из контекстного меню: повтор — снова ExecuteVerb, сервер сам
+    // проверит дальность.
+    internal static void EnqueueVerb(EntityUid user, EntityUid target, Content.Shared.Verbs.Verb verb,
+        IGameTiming timing)
+    {
+        if (_system != null && _target == target && _verb is not null)
+            return;
+
+        var system = IoCManager.Resolve<IEntityManager>()
+            .System<Content.Client.Interactable.InteractionSystem>();
+
+        _system = system;
+        _user = user;
+        _target = target;
+        _verb = verb;
+        _total = MathF.Max(Seconds, 0.1f);
+        _deadline = timing.CurTime + TimeSpan.FromSeconds(_total);
+        _wasInRange = false;
+
+        Console.WriteLine($"[SsMod] предикт: глагол по {target} вне радиуса, ждём {_total:0.0} с");
+    }
+
     public static void Cancel()
     {
         _system = null;
+        _verb = null;
         _wasInRange = false;
     }
 
@@ -161,6 +186,30 @@ internal static class InteractQueue
 
         if (timing.CurTime - _inRangeSince < TimeSpan.FromSeconds(InRangeDelay))
             return;
+
+        if (_verb is { } verb)
+        {
+            // Глагол: повтор — снова ExecuteVerb, он сам шлёт событие серверу.
+            Cancel();
+            Retrying = true;
+
+            Console.WriteLine($"[SsMod] предикт: цель в радиусе, повторяю глагол по {_target}");
+
+            try
+            {
+                ent.System<Content.Client.Verbs.VerbSystem>().ExecuteVerb(_target, verb);
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine($"[SsMod] предикт: повтор глагола не удался: {e.Message}");
+            }
+            finally
+            {
+                Retrying = false;
+            }
+
+            return;
+        }
 
         Retry(ent, timing);
     }
@@ -397,6 +446,44 @@ internal static class InteractQueueBindPatch
 
         InteractQueue.Enqueue(__instance, self, uid, function,
             IoCManager.Resolve<IGameTiming>());
+    }
+}
+
+// Пункты контекстного меню (глаголы): клиент шлёт их отдельным событием,
+// до UserInteraction не доходят. Клиентские глаголы (ClientExclusive) —
+// локальные, им дальность не нужна, пропускаем.
+[HarmonyPatch(typeof(Content.Client.Verbs.VerbSystem), nameof(Content.Client.Verbs.VerbSystem.ExecuteVerb),
+    new[] { typeof(Robust.Shared.GameObjects.NetEntity), typeof(Content.Shared.Verbs.Verb) })]
+internal static class InteractQueueVerbPatch
+{
+    // false у префикса — не выполняем оригинал: сервер его всё равно отвергнет
+    // по дальности, а так вместо попапа «слишком далеко» встанет ожидание.
+    private static bool Prefix(Content.Shared.Verbs.Verb verb,
+        Robust.Shared.GameObjects.NetEntity target)
+    {
+        if (InteractQueue.Retrying)
+            return true;
+
+        var ent = IoCManager.Resolve<IEntityManager>();
+        var player = IoCManager.Resolve<Robust.Client.Player.IPlayerManager>();
+
+        if (player.LocalEntity is not { Valid: true } self
+            || !InteractQueue.Enabled
+            || verb.ClientExclusive
+            || !ent.TryGetEntity(target, out var uid)
+            || uid is not { Valid: true })
+            return true;
+
+        var interaction = ent.System<Content.Client.Interactable.InteractionSystem>();
+
+        if (InteractQueue.InRange(interaction, self, uid.Value))
+        {
+            InteractQueue.Cancel();
+            return true;
+        }
+
+        InteractQueue.EnqueueVerb(self, uid.Value, verb, IoCManager.Resolve<IGameTiming>());
+        return false;
     }
 }
 
