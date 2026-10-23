@@ -1241,18 +1241,19 @@ internal static class GunApi
 
     // ----------------------------------------------------------- хват-заглушка
 
-    private static TimeSpan _lastGhostFix;
+    private static EntityUid _ghost;
+    private static EntityUid _ghostGun;
+    private static bool _ghostToggled;
+    private static TimeSpan _ghostAt;
 
     // Застрявшая заглушка двуручного хвата: ствол выброшен/утерян, а
-    // «виртуальный предмет» остался в руке и держит её (на части серверов
-    // снятие хвата при выбросе ствола не срабатывает, и заглушка живёт на
-    // сервере даже после перезахода). Лечение — верба «снять хват» по самому
-    // стволу: пока он недалеко, сервер её выполнит и удалит заглушку.
-    // Вызывается из Maintain до поиска ствола: без ствола в руках Maintain
-    // выходит раньше, а заглушка как раз остаётся когда ствола уже нет.
+    // «виртуальный предмет» остался в руке и держит её. У лежащего на земле
+    // ствола вербы «снять хват» нет, а заглушку сервер ни трогать, ни выкинуть
+    // не даёт — единственный путь: когда ствол снова в руках, переключить
+    // хват туда-обратно серверными вербами, и сервер удалит заглушку.
     public static void FreeStuckWieldGhost(IEntityManager ent, EntityUid self, TimeSpan now)
     {
-        if (now - _lastGhostFix < TimeSpan.FromSeconds(1.5))
+        if (now - _ghostAt < TimeSpan.FromSeconds(1))
             return;
 
         try
@@ -1276,36 +1277,52 @@ internal static class GunApi
                 break;
             }
 
+            // Заглушки нет — состояние чистое.
             if (ghost is not { Valid: true })
+            {
+                _ghost = default;
+                _ghostGun = default;
+                _ghostToggled = false;
+                return;
+            }
+
+            // Нормальный хват: ствол в руке и «в двух руках» — не трогаем.
+            if (blocker is { Valid: true } liveGun
+                && ent.TryGetComponent(liveGun, out WieldableComponent? wield) && wield.Wielded)
                 return;
 
-            // Нормальный хват: ствол в другой руке и всё ещё «в двух руках» —
-            // трогать нечего.
-            if (blocker is { Valid: true } gun
-                && ent.HasComponent<WieldableComponent>(gun))
+            // Новая застрявшая заглушка: одна строка в лог и не больше.
+            if (_ghost != ghost)
             {
+                _ghost = ghost;
+                _ghostGun = blocker;
+                _ghostToggled = false;
+                Note("[SsMod] две руки: заглушка хвата застряла — подбери ствол, мод снимет хват сам");
+            }
+
+            _ghostAt = now;
+
+            // Ствол снова в руках (и не в хвате): переключаем хват туда-обратно,
+            // серверная верба удаляет заглушку при снятии.
+            if (_ghostGun is { Valid: true } gun
+                && ent.HasComponent<TransformComponent>(gun))
+            {
+                var inHand = false;
                 foreach (var (_, item) in HandItems(ent, self, hands))
                 {
-                    if (item == gun
-                        && ent.TryGetComponent(gun, out WieldableComponent? wield)
-                        && wield.Wielded)
-                        return;
+                    if (item == gun)
+                    {
+                        inHand = true;
+                        break;
+                    }
+                }
+
+                if (inHand)
+                {
+                    TryWieldVerb(gun, self, wield: !_ghostToggled);
+                    _ghostToggled = !_ghostToggled;
                 }
             }
-
-            _lastGhostFix = now;
-
-            // Ствол ещё существует — снимаем хват вербой (дальность проверит
-            // сервер; после недалёкого броска обычно достаёт).
-            if (blocker is { Valid: true } live
-                && ent.HasComponent<TransformComponent>(live))
-            {
-                Note($"[SsMod] две руки: заглушка хвата застряла, снимаю по стволу {live}");
-                TryWieldVerb(live, self, false);
-                return;
-            }
-
-            Note("[SsMod] две руки: заглушка хвата застряла, ствола больше нет — подбери его и перезарядись, чтобы сервер снял хват");
         }
         catch (Exception e)
         {
@@ -1576,7 +1593,13 @@ internal static class GunApi
                     RaiseHandEvent(ent, SetHandEvent, back);
 
                 _stage = ReloadStage.Idle;
-                Note("[SsMod] перезарядка: не успела, отмена");
+
+                // Перед следующим заходом выжидаем: без паузы перезарядка
+                // крутилась по кругу (снять хват — не успела — снова снять
+                // хват), дёргая ствол и заваливая лог.
+                _lastReload = now + TimeSpan.FromSeconds(10);
+
+                Note("[SsMod] перезарядка: не успела, пауза 10 с");
                 return;
             }
 
