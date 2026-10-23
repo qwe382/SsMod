@@ -3,6 +3,7 @@ using System.Numerics;
 using System.Reflection;
 using Content.Shared.CombatMode;
 using Content.Shared.Hands.Components;
+using Content.Shared.Inventory.VirtualItem;
 using Content.Shared.Mobs;
 using Content.Shared.Mobs.Components;
 using Content.Shared.Physics;
@@ -704,6 +705,8 @@ public static class AimBot
                 return;
             }
 
+            GunApi.FreeStuckWieldGhost(ent, self, now);
+
             if (!AttackReach.TryGetGun(ent, self, out var gunUid)
                 || !ent.TryGetComponent(gunUid, out GunComponent? gun))
                 return;
@@ -1235,6 +1238,80 @@ internal static class GunApi
     // удалён: TryWield сам выкидывает помеху (TrySpawnVirtualItemInHand с
     // dropOthers), а стадии никогда не запускались (поля рук не заполнялись,
     // см. warning CS0649). TryUseInHand выше делает всё сам.
+
+    // ----------------------------------------------------------- хват-заглушка
+
+    private static TimeSpan _lastGhostFix;
+
+    // Застрявшая заглушка двуручного хвата: ствол выброшен/утерян, а
+    // «виртуальный предмет» остался в руке и держит её (на части серверов
+    // снятие хвата при выбросе ствола не срабатывает, и заглушка живёт на
+    // сервере даже после перезахода). Лечение — верба «снять хват» по самому
+    // стволу: пока он недалеко, сервер её выполнит и удалит заглушку.
+    // Вызывается из Maintain до поиска ствола: без ствола в руках Maintain
+    // выходит раньше, а заглушка как раз остаётся когда ствола уже нет.
+    public static void FreeStuckWieldGhost(IEntityManager ent, EntityUid self, TimeSpan now)
+    {
+        if (now - _lastGhostFix < TimeSpan.FromSeconds(1.5))
+            return;
+
+        try
+        {
+            if (!ent.TryGetComponent(self, out HandsComponent? hands))
+                return;
+
+            EntityUid ghost = default;
+            EntityUid blocker = default;
+
+            foreach (var (_, item) in HandItems(ent, self, hands))
+            {
+                if (item is not { } held || !IsVirtual(ent, held))
+                    continue;
+
+                ghost = held;
+
+                if (ent.TryGetComponent(held, out VirtualItemComponent? virt))
+                    blocker = virt.BlockingEntity;
+
+                break;
+            }
+
+            if (ghost is not { Valid: true })
+                return;
+
+            // Нормальный хват: ствол в другой руке и всё ещё «в двух руках» —
+            // трогать нечего.
+            if (blocker is { Valid: true } gun
+                && ent.HasComponent<WieldableComponent>(gun))
+            {
+                foreach (var (_, item) in HandItems(ent, self, hands))
+                {
+                    if (item == gun
+                        && ent.TryGetComponent(gun, out WieldableComponent? wield)
+                        && wield.Wielded)
+                        return;
+                }
+            }
+
+            _lastGhostFix = now;
+
+            // Ствол ещё существует — снимаем хват вербой (дальность проверит
+            // сервер; после недалёкого броска обычно достаёт).
+            if (blocker is { Valid: true } live
+                && ent.HasComponent<TransformComponent>(live))
+            {
+                Note($"[SsMod] две руки: заглушка хвата застряла, снимаю по стволу {live}");
+                TryWieldVerb(live, self, false);
+                return;
+            }
+
+            Note("[SsMod] две руки: заглушка хвата застряла, ствола больше нет — подбери его и перезарядись, чтобы сервер снял хват");
+        }
+        catch (Exception e)
+        {
+            Note($"[SsMod] две руки: заглушка: {e.Message}");
+        }
+    }
 
     // --------------------------------------------------------------- перезарядка
 
