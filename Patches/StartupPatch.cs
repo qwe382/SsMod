@@ -66,6 +66,15 @@ public static class StartupPatch
                 overlays.AddOverlay(new TracesOverlay());
         });
 
+        // Круг-таймер предикта взаимодействий. Внутри сам проверяет, есть ли
+        // ожидание, поэтому висит всегда.
+        Step("предикт взаимодействий", () =>
+        {
+            var overlays = IoCManager.Resolve<IOverlayManager>();
+            if (!overlays.HasOverlay<InteractQueueOverlay>())
+                overlays.AddOverlay(new InteractQueueOverlay());
+        });
+
         // Стартовый конфиг. Оверлеи внутри берут системы лениво, поэтому
         // создание здесь безопасно (в PostInit IEntityManager.System<T>() ещё
         // падает, см. комментарии в MelBot/GunBot/Esp/DamagePopup).

@@ -104,6 +104,18 @@ public static class Config
         Add("gunbot.aim",
             () => GunBot.Aim ? "true" : "false",
             v => GunBot.SetAim(ParseBool(v)));
+
+        Add("interactqueue",
+            () => InteractQueue.Enabled ? "true" : "false",
+            v => InteractQueue.Enabled = ParseBool(v));
+
+        Add("interactqueue.seconds",
+            () => InteractQueue.Seconds.ToString("R", CultureInfo.InvariantCulture),
+            v =>
+            {
+                if (float.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds))
+                    InteractQueue.Seconds = Math.Clamp(seconds, 0.2f, 10f);
+            });
     }
 
     // ---------- Конфиг по умолчанию ----------

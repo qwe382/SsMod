@@ -154,6 +154,9 @@ public sealed class SsModWindow : DefaultWindow
         noEffects.OnToggled += args => NoEffects.Toggle(args.Pressed);
         box.AddChild(noEffects);
 
+        // Предикт взаимодействий: клик вне радиуса ждёт цель, круг-таймер.
+        box.AddChild(InteractQueue.BuildControls());
+
         return box;
     }
 
