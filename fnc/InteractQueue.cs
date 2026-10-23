@@ -27,11 +27,20 @@ internal static class InteractQueue
     // Сколько секунд ждать, пока цель окажется в радиусе.
     public static float Seconds = 2f;
 
-    // Радиус/толщина/цвет круга у цели.
+    // Радиус/толщина/цвет круга у цели (запасной вариант, если нет иконки).
     public const float RingRadius = 22f;
     public const float RingWidth = 4f;
     private static readonly Color RingBack = new(0f, 0f, 0f, 0.45f);
     private static readonly Color RingFill = new(0.3f, 0.9f, 1f, 0.9f);
+
+    // Готовые кадры таймера из ресурсов игры (радиальный открут).
+    private const string CooldownBase = "/Textures/Interface/Inventory/cooldown-";
+    private const int CooldownFrames = 9;
+
+    // Микрозадержка перед повтором: цель должна побыть в радиусе, чтобы
+    // граничный кадр (дальность ещё дёргается, сервер видит иначе) не дал
+    // повтору уйти впустую.
+    private const float InRangeDelay = 0.15f;
 
     private static SharedInteractionSystem? _system;
     private static EntityUid _user;
@@ -46,6 +55,10 @@ internal static class InteractQueue
 
     private static TimeSpan _deadline;
     private static float _total;
+
+    // С какого момента цель непрерывно в радиусе (для микрозадержки).
+    private static TimeSpan _inRangeSince;
+    private static bool _wasInRange;
 
     public static bool Pending => _system != null;
 
@@ -62,11 +75,13 @@ internal static class InteractQueue
         _alt = alt;
         _total = MathF.Max(Seconds, 0.1f);
         _deadline = timing.CurTime + TimeSpan.FromSeconds(_total);
+        _wasInRange = false;
     }
 
     public static void Cancel()
     {
         _system = null;
+        _wasInRange = false;
     }
 
     // Общая для версий проверка дальности: перегрузки InRangeUnobstructed
@@ -103,6 +118,20 @@ internal static class InteractQueue
         }
 
         if (!InRange(system, _user, target))
+        {
+            _wasInRange = false;
+            return;
+        }
+
+        // Микрозадержка: ждём, пока цель непрерывно в радиусе.
+        if (!_wasInRange)
+        {
+            _wasInRange = true;
+            _inRangeSince = timing.CurTime;
+            return;
+        }
+
+        if (timing.CurTime - _inRangeSince < TimeSpan.FromSeconds(InRangeDelay))
             return;
 
         Retry(ent, timing);
@@ -156,7 +185,8 @@ internal static class InteractQueue
         }
     }
 
-    // Круг-таймер у цели: фоновое кольцо + заливка остатка секунд.
+    // Таймер у цели: готовые кадры cooldown-0..8 из ресурсов игры — кадр по
+    // остатку секунд. Если текстур нет (чужой форк) — рисованный круг.
     public static void Draw(DrawingHandleScreen handle, Vector2 center, IGameTiming timing)
     {
         if (_system == null)
@@ -164,6 +194,18 @@ internal static class InteractQueue
 
         var left = (float) (_deadline - timing.CurTime).TotalSeconds;
         var fraction = Math.Clamp(left / _total, 0f, 1f);
+
+        var frame = (int) MathF.Round((1f - fraction) * (CooldownFrames - 1));
+        var icon = Icons.Get($"{CooldownBase}{frame}.png");
+
+        if (icon is { } texture)
+        {
+            const float size = 44f;
+            var tint = new Color(1f, 1f, 1f, 0.25f + 0.75f * fraction);
+            handle.DrawTextureRect(texture,
+                new UIBox2(center - new Vector2(size / 2f), center + new Vector2(size / 2f)), tint);
+            return;
+        }
 
         CombatVisuals.Circle(handle, center, RingRadius, RingWidth, RingBack);
 
