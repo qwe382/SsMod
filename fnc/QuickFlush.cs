@@ -88,8 +88,8 @@ internal static class QuickFlushDragPatch
 
                 var valid = validDragDrop.Invoke(__instance, [user, draggedUid, candidate]);
                 if (valid is not true ||
-                    !interaction.InRangeUnobstructed(user, candidate) ||
-                    !interaction.InRangeUnobstructed(user, draggedUid))
+                    !InRange(ent, interaction, user, candidate) ||
+                    !InRange(ent, interaction, user, draggedUid))
                     continue;
 
                 if (ent.HasComponent<DisposalUnitComponent>(candidate))
@@ -106,6 +106,14 @@ internal static class QuickFlushDragPatch
     {
         if (__result && __state.Disposal is { } disposal)
             QuickFlush.TryFlush(__state.Dragged, disposal);
+    }
+
+    // 264 не имеет перегрузки InRangeUnobstructed(Entity<T>, Entity<T>, ...)
+    // без user/lagCompensate — общая для всех версий проверка идёт по координатам.
+    private static bool InRange(IEntityManager ent, SharedInteractionSystem interaction, EntityUid user, EntityUid target)
+    {
+        var xform = ent.GetComponent<TransformComponent>(target);
+        return interaction.InRangeUnobstructed(user, xform.Coordinates);
     }
 }
 

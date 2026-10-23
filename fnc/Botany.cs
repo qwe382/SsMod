@@ -212,7 +212,9 @@ public static class BotanyExaminePatch
                 Name = BotanyRead.LabelName,
                 Margin = new Thickness(4, 4, 0, 4),
             };
-            label.SetMessage(FormattedMessage.FromMarkupPermissive(text));
+            // 264 не имеет SetMessage(FormattedMessage, Color?) — общая перегрузка
+            // с tagsAllowed есть во всех версиях.
+            label.SetMessage(FormattedMessage.FromMarkupPermissive(text), null, null);
             vBox.AddChild(label);
 
             if (buttons != null)

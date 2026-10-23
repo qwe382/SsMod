@@ -163,6 +163,12 @@ public static class AimBot
 
     private static readonly Dictionary<EntityUid, (Vector2 Pos, Vector2 Vel, TimeSpan At)> Tracked = new();
 
+    // Линия до цели перекрыта стеной (цвет линии и гейт стрельбы).
+    public static bool LineBlocked { get; private set; }
+
+    private static EntityUid _blockedTarget;
+    private static TimeSpan _blockedAt;
+
     private static string _lastWhy = "";
     private static TimeSpan _lastWhyAt;
 
@@ -305,6 +311,17 @@ public static class AimBot
         var targetWorld = transform.GetWorldPosition(uid);
         Distance = (targetWorld - SelfWorld).Length();
 
+        // Перекрыта ли линия до цели — для цвета линии и гейта «стена».
+        // Луч пускаем не чаще 10 раз в секунду и ведём в саму цель, а не в
+        // точку предикта (та уходит за угол и даёт мигание).
+        var nowBlocked = timing.CurTime;
+        if (_blockedTarget != uid || nowBlocked - _blockedAt > TimeSpan.FromMilliseconds(100))
+        {
+            LineBlocked = Blocked(ent, self, selfMap, SelfWorld, targetWorld, uid);
+            _blockedTarget = uid;
+            _blockedAt = nowBlocked;
+        }
+
         // ---- профиль оружия
         var now = timing.CurTime;
 
@@ -383,7 +400,7 @@ public static class AimBot
             Status = $"жду разброс ({SpreadDeg:0.0}°)";
             WantsFire = false;
         }
-        else if (AimBotSettings.WallCheck && Blocked(ent, self, selfMap, SelfWorld, AimWorld, uid))
+        else if (AimBotSettings.WallCheck && LineBlocked)
         {
             Status = "стена";
             WantsFire = false;

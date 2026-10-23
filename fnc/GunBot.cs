@@ -344,16 +344,20 @@ public sealed class GunBotOverlay : Overlay
                 CombatVisuals.Screen(args, selfWorld),
                 toScreen,
                 VisualSettings.TraceWidth,
-                CombatVisuals.Ranged.Line);
+                AimBot.LineBlocked ? VisualSettings.TraceLineBlockedColor : VisualSettings.TraceLineFreeColor);
         }
 
-        // Радиус дуг — конус разброса ровно на дистанции до цели: дальше цель,
-        // шире круг; ближе — уже. Множитель и минимум из настроек.
+        // Радиус по конусу разброса на дистанции до цели: дальше цель — шире.
         var radiusTiles = MathF.Max(AimBot.ConeTiles * VisualSettings.SpreadScale, VisualSettings.SpreadMinTiles);
         var radius = CombatVisuals.Radius(args, targetWorld, radiusTiles);
 
-        if (VisualSettings.SpreadEnabled && VisualSettings.TraceArcs)
-            CombatVisuals.Arcs(handle, toScreen, radius, CombatVisuals.Ranged.Arc, _timing.RealTime);
+        // Дуги — визуал наводки.
+        if (VisualSettings.AimArcs)
+            CombatVisuals.Arcs(handle, toScreen, radius, VisualSettings.AimArcColor, _timing.RealTime);
+
+        // Зона разброса — палки и подсветка (если не просили прятать при аимботе).
+        if (!VisualSettings.SpreadHideWhenAim || !AimBot.Engaged)
+            DrawSpreadZone(handle, args, selfWorld, targetWorld, AimBot.SpreadDeg * VisualSettings.SpreadScale);
 
         if (!VisualSettings.SpreadDegrees)
             return;
@@ -388,9 +392,7 @@ public sealed class GunBotOverlay : Overlay
         var center = CombatVisuals.CursorScreen(args, out _) + new Vector2(0f, VisualSettings.SpreadCursorOffsetY);
         var radius = CombatVisuals.Radius(args, world, radiusTiles);
 
-        if (VisualSettings.TraceArcs)
-            CombatVisuals.Arcs(handle: args.ScreenHandle, center: center, radius: radius,
-                color: CombatVisuals.Ranged.Arc, now: _timing.RealTime);
+        DrawSpreadZone(args.ScreenHandle, args, selfWorld, world, deg * VisualSettings.SpreadScale);
 
         if (!VisualSettings.SpreadDegrees)
             return;
@@ -399,6 +401,48 @@ public sealed class GunBotOverlay : Overlay
         var pos = center + new Vector2(radius + 6f, -6f);
         Compat.DrawText(args.ScreenHandle, _font, pos + new Vector2(1f, 1f), text, 1f, new Color(0f, 0f, 0f, 0.7f));
         Compat.DrawText(args.ScreenHandle, _font, pos, text, 1f, VisualSettings.SpreadTextColor);
+    }
+
+    // Зона разброса от стрелка к точке: две палки по краям конуса и заливка
+    // между ними. Включаются галочками в настройках.
+    private void DrawSpreadZone(DrawingHandleScreen handle, in OverlayDrawArgs args,
+        Vector2 fromWorld, Vector2 toWorld, float halfDeg)
+    {
+        if (!VisualSettings.SpreadEnabled)
+            return;
+
+        var delta = toWorld - fromWorld;
+        if (delta.LengthSquared() < 0.0001f)
+            return;
+
+        var half = Math.Clamp(halfDeg, 0f, 45f) * (MathF.PI / 180f);
+        var fromScreen = CombatVisuals.Screen(args, fromWorld);
+
+        const int segments = 24;
+        var arc = new Vector2[segments + 1];
+
+        for (var i = 0; i <= segments; i++)
+        {
+            var t = -half + 2f * half * i / segments;
+            arc[i] = CombatVisuals.Screen(args, fromWorld + Rotate(delta, t));
+        }
+
+        if (VisualSettings.SpreadHighlight)
+            CombatVisuals.Sector(handle, fromScreen, arc, VisualSettings.SpreadZoneColor);
+
+        if (VisualSettings.SpreadSticks)
+        {
+            var width = MathF.Max(VisualSettings.SpreadStickWidth, 0.5f);
+            CombatVisuals.ThickLine(handle, fromScreen, arc[0], width, VisualSettings.SpreadStickColor);
+            CombatVisuals.ThickLine(handle, fromScreen, arc[segments], width, VisualSettings.SpreadStickColor);
+        }
+    }
+
+    private static Vector2 Rotate(Vector2 v, float angle)
+    {
+        var cos = MathF.Cos(angle);
+        var sin = MathF.Sin(angle);
+        return new Vector2(v.X * cos - v.Y * sin, v.X * sin + v.Y * cos);
     }
 
     // Красная — точка предикта (куда надо стрелять), синяя — точка ПИД, которая

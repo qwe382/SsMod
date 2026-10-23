@@ -108,6 +108,22 @@ internal static class CombatVisuals
     public static void Arcs(DrawingHandleScreen handle, Vector2 center, float radius, Color color, TimeSpan now)
         => DrawArcs(handle, center, radius, color, now);
 
+    // Залитый сектор (подсветка зоны разброса): центр и точки дуги уже в
+    // экранных координатах.
+    public static void Sector(DrawingHandleScreen handle, Vector2 center, ReadOnlySpan<Vector2> arc, Color color)
+    {
+        if (arc.Length < 2)
+            return;
+
+        var verts = new Vector2[arc.Length + 1];
+        verts[0] = center;
+
+        for (var i = 0; i < arc.Length; i++)
+            verts[i + 1] = arc[i];
+
+        handle.DrawPrimitives(DrawPrimitiveTopology.TriangleFan, verts, color);
+    }
+
     // Мир под курсором. Через EyeManager.PixelToMap не берём: он идёт через
     // _uiManager.MouseGetControl и молча отдаёт мир в нуле, если курсор мимо
     // вьюпорта. Здесь берём вьюпорт напрямую — он компенсирует и масштаб

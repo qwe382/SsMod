@@ -28,9 +28,8 @@ public static class VisualSettings
     public static Color AmmoEmptyColor = new(1f, 0.3f, 0.3f);
     public static float AmmoOffsetY = 0f;
 
-    // Разброс (дуги). Радиус всегда считается по конусу на реальной дистанции:
-    // до цели, а без цели — до курсора. Поэтому он шире при стрельбе издалека
-    // и уже вблизи, и масштабируется вместе с зумом.
+    // Разброс: зона считается по конусу на реальной дистанции — до цели, а без
+    // цели до курсора. Радиус/зона масштабируются вместе с зумом.
     public static bool SpreadEnabled = true;
     public static bool SpreadNoTarget = true;
     public static float SpreadScale = 1f;
@@ -38,6 +37,25 @@ public static class VisualSettings
     public static bool SpreadDegrees;
     public static Color SpreadTextColor = new(0.75f, 0.85f, 1f, 0.95f);
     public static float SpreadCursorOffsetY = 0f;
+
+    // Чем показывать зону разброса: две палки по краям конуса и подсветка всей
+    // зоны. Галочки, каждая независимо.
+    public static bool SpreadSticks = true;
+    public static bool SpreadHighlight = true;
+    public static float SpreadStickWidth = 2f;
+    public static Color SpreadStickColor = new(0.6f, 0.8f, 1f, 0.55f);
+    public static Color SpreadZoneColor = new(0.25f, 0.55f, 1f, 0.15f);
+
+    // Дуги — визуал наводки: вокруг цели, свой цвет.
+    public static bool AimArcs = true;
+    public static Color AimArcColor = new(0.25f, 0.55f, 1f, 0.35f);
+
+    // Прятать зону разброса, пока аимбот ведёт цель.
+    public static bool SpreadHideWhenAim;
+
+    // Линия до цели: два цвета — свободно и перекрыто.
+    public static Color TraceLineFreeColor = new(0.3f, 1f, 0.4f, 0.6f);
+    public static Color TraceLineBlockedColor = new(1f, 0.25f, 0.25f, 0.7f);
 
     // Линия до цели и дуги вокруг неё (мелбот/gun-bot).
     public static bool TraceLine = true;
@@ -364,6 +382,7 @@ public static class Visuals
         var grid = Grid(
             ("Множитель ×", Spin(VisualSettings.SpreadScale, 0.1f, 2, v => VisualSettings.SpreadScale = v)),
             ("Минимум, тайлов", Spin(VisualSettings.SpreadMinTiles, 0.05f, 2, v => VisualSettings.SpreadMinTiles = v)),
+            ("Палки, px", Spin(VisualSettings.SpreadStickWidth, 0.5f, 1, v => VisualSettings.SpreadStickWidth = v)),
             ("Линия, px", Spin(VisualSettings.TraceWidth, 1f, 0, v => VisualSettings.TraceWidth = v)),
             ("Дуги, px", Spin(VisualSettings.TraceArcWidth, 1f, 0, v => VisualSettings.TraceArcWidth = v)),
             ("Сдвиг по Y", Spin(VisualSettings.SpreadCursorOffsetY, 2f, 0, v => VisualSettings.SpreadCursorOffsetY = v)));
@@ -371,10 +390,24 @@ public static class Visuals
         return Section("Разброс", Body(
             Check("Показывать разброс", VisualSettings.SpreadEnabled, v => VisualSettings.SpreadEnabled = v),
             Check("Без цели — у курсора", VisualSettings.SpreadNoTarget, v => VisualSettings.SpreadNoTarget = v),
+            Check("Две палки", VisualSettings.SpreadSticks, v => VisualSettings.SpreadSticks = v),
+            Check("Подсветка зоны", VisualSettings.SpreadHighlight, v => VisualSettings.SpreadHighlight = v),
+            Check("Дуги наводки", VisualSettings.AimArcs, v => VisualSettings.AimArcs = v),
+            Check("Прятать при активном аимботе", VisualSettings.SpreadHideWhenAim,
+                v => VisualSettings.SpreadHideWhenAim = v),
             Check("Линия до цели", VisualSettings.TraceLine, v => VisualSettings.TraceLine = v),
-            Check("Дуги", VisualSettings.TraceArcs, v => VisualSettings.TraceArcs = v),
             Check("Писать градусы", VisualSettings.SpreadDegrees, v => VisualSettings.SpreadDegrees = v),
             grid,
+            new Label { Text = "Цвет линии (свободно)" },
+            ColorControl(VisualSettings.TraceLineFreeColor, c => VisualSettings.TraceLineFreeColor = c),
+            new Label { Text = "Цвет линии (заблокировано)" },
+            ColorControl(VisualSettings.TraceLineBlockedColor, c => VisualSettings.TraceLineBlockedColor = c),
+            new Label { Text = "Цвет палок" },
+            ColorControl(VisualSettings.SpreadStickColor, c => VisualSettings.SpreadStickColor = c),
+            new Label { Text = "Цвет зоны" },
+            ColorControl(VisualSettings.SpreadZoneColor, c => VisualSettings.SpreadZoneColor = c),
+            new Label { Text = "Цвет дуг наводки" },
+            ColorControl(VisualSettings.AimArcColor, c => VisualSettings.AimArcColor = c),
             new Label { Text = "Цвет градусов" },
             ColorControl(VisualSettings.SpreadTextColor, c => VisualSettings.SpreadTextColor = c)),
             expanded: true);
