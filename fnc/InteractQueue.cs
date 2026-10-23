@@ -185,15 +185,27 @@ internal static class InteractQueue
             ? Content.Shared.Input.ContentKeyFunctions.AltActivateItemInWorld
             : Robust.Shared.Input.EngineKeyFunctions.Use;
 
-        // Down, не Up: PointerInputCmdHandler игнорирует Up (ignoreUp) и
-        // молча выбрасывает такую команду.
-        var msg = new Robust.Shared.Input.ClientFullInputCmdMessage(
+        // Полная пара Down + Up, как у реального клика. Взаимодействие делает
+        // Down (PointerInputCmdHandler игнорирует Up), но без Up сервер считает
+        // кнопку зажатой — и следующее движение мыши перетаскивает предмет
+        // («нажал, но не отпустил»).
+        var id = inputManager.NetworkBindMap.KeyFunctionID(function);
+        var down = new Robust.Shared.Input.ClientFullInputCmdMessage(
             timing.CurTick,
             default,
-            inputManager.NetworkBindMap.KeyFunctionID(function),
+            id,
             xform.Coordinates,
             screen,
             Robust.Shared.Input.BoundKeyState.Down,
+            _target);
+
+        var up = new Robust.Shared.Input.ClientFullInputCmdMessage(
+            timing.CurTick,
+            1,
+            id,
+            xform.Coordinates,
+            screen,
+            Robust.Shared.Input.BoundKeyState.Up,
             _target);
 
         Cancel();
@@ -203,7 +215,8 @@ internal static class InteractQueue
 
         try
         {
-            inputSystem.HandleInputCommand(player.LocalSession, function, msg, replay: true);
+            inputSystem.HandleInputCommand(player.LocalSession, function, down, replay: true);
+            inputSystem.HandleInputCommand(player.LocalSession, function, up, replay: true);
         }
         catch (Exception e)
         {
