@@ -105,15 +105,46 @@ internal static class InteractQueue
         if (!InRange(system, _user, target))
             return;
 
-        // Цель в радиусе: повторяем тот же клик по её текущей позиции.
-        var coords = ent.GetComponent<TransformComponent>(target).Coordinates;
+        Retry(ent, timing);
+    }
+
+    // Повтор клика как настоящего ввода. Прямой вызов UserInteraction здесь не
+    // годится: он делает только локальный предикт, а сервер узнаёт о
+    // взаимодействии из инпут-сообщения самого клика. Без него подбор
+    // откатывается синхронизацией. HandleInputCommand с replay:true гонит и
+    // локальные хендлеры (предикт), и отправку команды серверу, минуя
+    // дедупликацию состояния кнопки.
+    private static void Retry(IEntityManager ent, IGameTiming timing)
+    {
+        var player = IoCManager.Resolve<Robust.Client.Player.IPlayerManager>();
+        var inputManager = IoCManager.Resolve<Robust.Client.Input.IInputManager>();
+        var inputSystem = ent.System<Robust.Client.GameObjects.InputSystem>();
+
+        var xform = ent.GetComponent<TransformComponent>(_target);
+        var world = ent.System<SharedTransformSystem>().GetWorldPosition(_target);
+        // WorldToScreen отдаёт пиксели; вьюпорт 0 — основной экран игры.
+        var screen = new ScreenCoordinates(
+            IoCManager.Resolve<Robust.Client.Graphics.IEyeManager>().WorldToScreen(world), default);
+
+        var function = _alt
+            ? Content.Shared.Input.ContentKeyFunctions.AltActivateItemInWorld
+            : Robust.Shared.Input.EngineKeyFunctions.Use;
+
+        var msg = new Robust.Shared.Input.ClientFullInputCmdMessage(
+            timing.CurTick,
+            default,
+            inputManager.NetworkBindMap.KeyFunctionID(function),
+            xform.Coordinates,
+            screen,
+            Robust.Shared.Input.BoundKeyState.Up,
+            _target);
 
         Cancel();
         Retrying = true;
 
         try
         {
-            system.UserInteraction(_user, coords, target, altInteract: _alt);
+            inputSystem.HandleInputCommand(player.LocalSession, function, msg, replay: true);
         }
         catch (Exception e)
         {
