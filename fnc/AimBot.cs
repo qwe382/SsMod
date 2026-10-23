@@ -1280,6 +1280,7 @@ internal static class GunApi
     private static EntityUid _reloadGun;
     private static EntityUid _rewieldGun;
     private static TimeSpan _unwieldClickAt;
+    private static int _unwieldTries;
     private static string? _freeHandName;
     private static int _openTried;
     private static bool _storageSent;
@@ -1404,6 +1405,7 @@ internal static class GunApi
                     _gunHand = gunHand;
                     _stage = ReloadStage.Unwielding;
                     _stageAt = now;
+                    _unwieldTries = 0;
 
                     Note("[SsMod] перезарядка: убираю ствол из двух рук, чтобы освободить руку");
 
@@ -1588,18 +1590,30 @@ internal static class GunApi
                             return;
 
                         _unwieldClickAt = now;
+                        _unwieldTries++;
 
-                        // Верба «Unwield» не зависит от того, кто первым
-                        // обработает UseInHand (магазинная пушка тоже его ловит
-                        // и вместо снятия хвата передёргивает затвор), но сервер
-                        // может не найти вербу по тексту. Поэтому чередуем:
-                        // попытка вербой — попытка кликом.
-                        // Только верба: клик по слоту руки у магазинного оружия
-                        // перехватывает UseInHand и передёргивает затвор.
-                        TryWieldVerb(_reloadGun, self, false);
+                        // Два независимых серверных пути, чередуем: верба
+                        // «Unwield» (сервер может не сматчить её по тексту) и
+                        // клик по слоту руки (RequestUseInHand — WieldableSystem
+                        // подписан на UseInHand с before:, у магазинного оружия
+                        // хватает приоритета). Каждый путь логируется, чтобы по
+                        // логу было видно, кто именно снял хват.
+                        if (_unwieldTries % 2 == 1)
+                        {
+                            Note("[SsMod] перезарядка: снимаю хват вербой");
+                            TryWieldVerb(_reloadGun, self, false);
+                        }
+                        else
+                        {
+                            Note("[SsMod] перезарядка: снимаю хват кликом по слоту");
+                            RaiseEvent(ent, "Content.Shared.Hands.RequestUseInHandEvent");
+                        }
 
                         return;
                     }
+
+                    if (_unwieldTries > 0)
+                        Note("[SsMod] перезарядка: хват снят");
 
                     _stage = ReloadStage.Idle;
                     _lastReload = TimeSpan.Zero;
