@@ -1775,18 +1775,18 @@ internal static class GunApi
                     if (now - _stageAt < TimeSpan.FromSeconds(_feedSlow ? 2.5 : 0.35))
                         return;
 
-                    // ItemSlots при занятом слоте меняет магазины местами,
-                    // и пустой остаётся в руке. Дальше его выбрасываем (по
-                    // активной руке работает клавиша Drop), а непустой не
-                    // трогаем — он ещё пригодится.
+                    // Осталось что-то в руке: пустой магазин, коробка после
+                    // перекачки, спидлоадер. Сначала пробуем убрать в рюкзак/
+                    // разгрузку/сумку, выброс на землю — только если некуда.
                     if (_magHand is { } spentHand
                         && HeldInHand(ent, self, spentHand) is { } leftover
                         && !IsVirtual(ent, leftover)
-                        && IsEmptyMag(ent, leftover))
+                        && (IsEmptyMag(ent, leftover) || _singleFeed))
                     {
                         _stage = ReloadStage.Dropping;
                         _stageAt = now;
-                        Note($"[SsMod] перезарядка: выбрасываю пустой {Proto(ent, leftover)}");
+                        _stashTried.Clear();
+                        Note($"[SsMod] перезарядка: убираю {Proto(ent, leftover)} в инвентарь");
                         return;
                     }
 
@@ -1818,18 +1818,35 @@ internal static class GunApi
                         return;
                     }
 
-                    if (now - _stageAt > TimeSpan.FromSeconds(2))
+                    if (now - _stageAt > TimeSpan.FromSeconds(6))
                     {
-                        Note("[SsMod] перезарядка: пустой магазин остался в руке");
+                        Note("[SsMod] перезарядка: предмет так и остался в руке");
                         FinishReload(ent, hands, active);
                         return;
                     }
 
                     if (active != dropHand)
+                    {
                         RaiseHandEvent(ent, SetHandEvent, dropHand);
-                    else
-                        TryDrop(now);
+                        return;
+                    }
 
+                    // Раз в 0.8 с: сперва убираем предмет в сумку/рюкзак/
+                    // разгрузку (клик по сумке с предметом в активной руке —
+                    // штатная вставка в storage), и только когда хранилища
+                    // кончились — выбрасываем на землю.
+                    if (now - _dropClickAt < TimeSpan.FromSeconds(0.8))
+                        return;
+
+                    _dropClickAt = now;
+
+                    if (NextStash(ent, self) is { } stash)
+                    {
+                        InteractQueue.ClickEntity(ent, stash);
+                        return;
+                    }
+
+                    TryDrop(now);
                     return;
             }
         }
@@ -1994,13 +2011,18 @@ internal static class GunApi
     }
 
     // Пересекаются ли белые списки (по тегам) — так коробка патронов
-    // матчится к стволу: у обоих тег ShellShotgun.
+    // матчится к стволу: у обоих тег ShellShotgun. Пустой список у любой из
+    // сторон считаем совпадением: итоговый калибр при переносе всё равно
+    // проверяет сервер.
     private static bool TagsOverlap(object? a, object? b)
     {
+        if (a is null || b is null)
+            return true;
+
         var tagsA = GetMember(a, "Tags") as IEnumerable;
         var tagsB = GetMember(b, "Tags") as IEnumerable;
         if (tagsA is null || tagsB is null)
-            return false;
+            return true;
 
         var set = new HashSet<string>();
         foreach (var tag in tagsA)
@@ -2485,6 +2507,38 @@ internal static class GunApi
 
     private static TimeSpan _lastDrop;
     private static bool _dropFailed;
+    private static TimeSpan _dropClickAt;
+
+    // Хранилища, куда уже пробовали убрать предмет в этой стадии Dropping.
+    private static readonly HashSet<EntityUid> _stashTried = new();
+
+    // Следующее хранилище для складирования: надетые сумки/рюкзак/разгрузка,
+    // куда клик по сумке с предметом в руке кладёт его внутрь. Выброс на
+    // землю — только после того, как все перепробованы.
+    private static EntityUid? NextStash(IEntityManager ent, EntityUid self)
+    {
+        if (!ent.TryGetComponent(self, out ContainerManagerComponent? manager))
+            return null;
+
+        var storageType = Compat.FindType("Content.Shared.Storage.StorageComponent");
+
+        foreach (var (_, container) in manager.Containers)
+        {
+            foreach (var worn in container.ContainedEntities)
+            {
+                if (_stashTried.Contains(worn))
+                    continue;
+
+                if (storageType is not null && HasComp(ent, worn, storageType))
+                {
+                    _stashTried.Add(worn);
+                    return worn;
+                }
+            }
+        }
+
+        return null;
+    }
 
     // Выбросить предмет из активной руки: штатная клавиша Drop. Другого
     // клиентского пути «выкинуть одну вещь» нет — TryDrop живёт на сервере.
