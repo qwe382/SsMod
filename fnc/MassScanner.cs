@@ -10,6 +10,7 @@ using Robust.Client.Player;
 using Robust.Client.ResourceManagement;
 using Robust.Client.UserInterface;
 using Robust.Client.UserInterface.Controls;
+using Robust.Client.UserInterface.CustomControls;
 using Robust.Shared.GameObjects;
 using Robust.Shared.Input;
 using Robust.Shared.IoC;
@@ -20,16 +21,12 @@ using Robust.Shared.Timing;
 
 namespace SsMod.Fnc;
 
-// «Сканер массы» — штатный радар игры в собственном окне-фрейме.
-//
-// В контенте предмет HandHeldMassScanner — обычный RadarConsole: окно
-// RadarConsoleWindow, внутри ShuttleNavControl, данные — NavInterfaceState.
-// Мод открывает то же окно (предмет в руках не нужен) и расширяет его:
-// справа панель со своими координатами и точками, поверх радара — свои
-// отметки персонажей и 1-пиксельные линии до них.
+// «Сканер массы» — собственный фрейм во главном окне: слева штатный радар
+// игры (ShuttleNavControl, тот же, что у HandHeldMassScanner), справа панель.
+// Предмет в руках не нужен; состояние радара собирается на клиенте.
 //
 // Ориентация: радар повторяет поворот камеры (Eye.Rotation) — куда повёрнут
-// экран, туда и «верх» карты. Состояние радара собирается рефлексией:
+// экран, туда и «верх» карты. Состояние собирается рефлексией:
 // в разных версиях клиента у NavInterfaceState разное число параметров
 // конструктора, прямой вызов падает на чужой версии.
 public static class MassScanner
@@ -52,11 +49,9 @@ public static class MassScanner
     private const float UIRadius = 320f;
     private const float UISize = (UIRadius + 4f) * 2f;
 
-    private static RadarConsoleWindow? _window;
-    private static RadarRefresher? _refresher;
-    private static RadarInput? _input;
     private static ShuttleNavControl? _radar;
-    private static bool _layoutDone;
+    private static RadarInput? _input;
+    private static RadarRefresher? _refresher;
 
     // Последнее отданное радару состояние: панорамирование меняет только
     // координаты центра, поворот и отметки обновляются каждый кадр/тик.
@@ -188,111 +183,58 @@ public static class MassScanner
 
     public static Control BuildTab()
     {
-        var box = new BoxContainer { Orientation = BoxContainer.LayoutOrientation.Vertical };
+        // Свежий радар на каждый вход во вкладку: старый уничтожен вместе с ней.
+        _radar = new ShuttleNavControl();
+        _pan = Vector2.Zero;
+        _state = null;
 
-        box.AddChild(new Label { Text = "Сканер массы" });
+        // Разрешаем приближаться ближе 64 тайлов (штатный минимум радара).
+        RelaxMinZoom(_radar);
 
-        var open = new Button { Text = "Открыть сканер" };
-        open.OnPressed += _ => Open();
-        box.AddChild(open);
+        // Радар не должен ужиматься лейаутом: у MapGridControl круги рисуются
+        // от фиксированного радиуса 320 UI-пикселей.
+        _radar.MinSize = _radar.SetSize;
 
-        var overlay = new CheckBox { Text = "Оверлей: указатель на выбранную точку", Pressed = OverlayEnabled };
-        overlay.OnToggled += args => SetOverlay(args.Pressed);
-        box.AddChild(overlay);
+        // Стартовый обзор. WorldRange — поле MapGridControl (256 по умолчанию).
+        _radar.AddRadarRange(DefaultZoom - _radar.WorldRange);
 
-        box.AddChild(new Label
-        {
-            Text = "Радар повторяет поворот камеры. Справа в окне сканера — свои " +
-                   "координаты, точки и настройки оверлея.",
-        });
+        var input = new RadarInput(_radar);
+        LayoutContainer.SetAnchorPreset(input, LayoutContainer.LayoutPreset.Wide);
+        _radar.AddChild(input);
+        _input = input;
 
-        return box;
-    }
+        var marks = new RadarMarks(_radar);
+        LayoutContainer.SetAnchorPreset(marks, LayoutContainer.LayoutPreset.Wide);
+        _radar.AddChild(marks);
 
-    // ---------- открытие окна ----------
+        var frame = new ScannerFrame();
+        frame.AddChild(_radar);
+        frame.AddChild(BuildPanel());
 
-    public static void Open()
-    {
-        var self = LocalPlayer();
-        if (self == null)
-        {
-            Console.WriteLine("[SsMod] сканер массы: нет персонажа");
-            return;
-        }
+        RebuildRows();
+        AttachRefresher();
 
+        // Сразу состояние, пока вкладка собирается: если персонажа ещё нет,
+        // радар останется пустым до первого тика RadarRefresher.
         try
         {
-            if (_window is not { Disposed: false })
-            {
-                // Как CreateWindow в BoundUserInterface: фабрика типов сама
-                // прокидывает [Dependency] в контролы (иначе радар падал бы в
-                // Draw на незаполненном IMapManager).
-                var ui = IoCManager.Resolve<IUserInterfaceManager>();
-                _window = ui.CreateWindow<RadarConsoleWindow>();
-                _window.Title = "Сканер массы";
-                _state = null;
-                _radar = null;
-                _input = null;
-                _pan = Vector2.Zero;
-                _layoutDone = false;
-                _coordsLabel = null;
-                _statusLabel = null;
-                _rowsHost = null;
-                _pointEdit = null;
-                _overlayCheck = null;
-                _metersCheck = null;
-                _modeButton = null;
-                Rows.Clear();
-            }
-
-            _radar ??= FindRadar(_window);
-            if (_radar == null)
-            {
-                Console.Error.WriteLine("[SsMod] сканер массы: ShuttleNavControl не найден");
-                return;
-            }
-
-            BuildLayout(_window, _radar);
-
-            PushState(self.Value);
-
-            if (_window.IsOpen)
-                _window.Close();
-
-            _window.OpenCentered();
-            AttachInput();
-            AttachRefresher();
-            Console.WriteLine("[SsMod] сканер массы: открыт");
+            if (LocalPlayer() is { } self)
+                PushState(self);
         }
         catch (Exception e)
         {
-            Console.Error.WriteLine($"[SsMod] сканер массы: {e}");
-            _window = null;
-            _state = null;
+            Console.Error.WriteLine($"[SsMod] сканер массы: старт: {e.Message}");
         }
+
+        return frame;
     }
 
-    // Перекомпоновка окна: слева карта, справа панель. Один раз на окно.
-    private static void BuildLayout(RadarConsoleWindow window, ShuttleNavControl radar)
+    private static void RelaxMinZoom(ShuttleNavControl radar)
     {
-        if (_layoutDone)
-            return;
+        var field = typeof(MapGridControl).GetField("WorldMinRange",
+            BindingFlags.NonPublic | BindingFlags.Instance);
 
-        var contents = window.ContentsContainer;
-        contents.RemoveAllChildren();
-
-        var row = new BoxContainer { Orientation = BoxContainer.LayoutOrientation.Horizontal };
-        contents.AddChild(row);
-
-        radar.HorizontalExpand = true;
-        radar.VerticalExpand = true;
-        row.AddChild(radar);
-        row.AddChild(BuildPanel());
-
-        window.SetSize = new Vector2(1080f, 680f);
-        window.MinSize = new Vector2(760f, 520f);
-
-        _layoutDone = true;
+        field?.SetValue(radar, MinZoom);
     }
 
     // ---------- панель справа ----------
@@ -561,7 +503,7 @@ public static class MassScanner
     // относительно экрана (верх экрана = «вверх»).
     private static void UpdateRows(EntityUid self, SharedTransformSystem transform, Angle rot)
     {
-        if (Rows.Count == 0)
+        if (Rows.Count == 0 || _rowsHost is not { Disposed: false })
             return;
 
         var selfWorld = transform.GetWorldPosition(self);
@@ -604,54 +546,6 @@ public static class MassScanner
         };
     }
 
-    // ---------- ввод на радаре ----------
-
-    private static void AttachInput()
-    {
-        if (_window == null || _radar == null)
-            return;
-
-        // Разрешаем приближаться ближе 64 тайлов (штатный минимум радара).
-        RelaxMinZoom(_radar);
-
-        if (_input is { Disposed: false } && _input.Parent != null)
-            return;
-
-        // Стартовый обзор. WorldRange — поле MapGridControl (256 по умолчанию).
-        _radar.AddRadarRange(DefaultZoom - _radar.WorldRange);
-
-        var input = new RadarInput(_radar);
-        LayoutContainer.SetAnchorPreset(input, LayoutContainer.LayoutPreset.Wide);
-        _radar.AddChild(input);
-        _input = input;
-
-        var marks = new RadarMarks(_radar);
-        LayoutContainer.SetAnchorPreset(marks, LayoutContainer.LayoutPreset.Wide);
-        _radar.AddChild(marks);
-    }
-
-    private static ShuttleNavControl? FindRadar(Control root)
-    {
-        foreach (var child in root.Children)
-        {
-            if (child is ShuttleNavControl radar)
-                return radar;
-
-            if (FindRadar(child) is { } nested)
-                return nested;
-        }
-
-        return null;
-    }
-
-    private static void RelaxMinZoom(ShuttleNavControl radar)
-    {
-        var field = typeof(MapGridControl).GetField("WorldMinRange",
-            BindingFlags.NonPublic | BindingFlags.Instance);
-
-        field?.SetValue(radar, MinZoom);
-    }
-
     // ---------- цикл обновления ----------
 
     // Каждый кадр: поворот радара за камерой и тексты панели.
@@ -659,7 +553,7 @@ public static class MassScanner
     {
         _lastRotation = EyeRotation();
 
-        if (_window is not { IsOpen: true, Disposed: false } || _state == null)
+        if (_radar is not { Disposed: false, Parent: not null } || _state == null)
             return;
 
         try
@@ -667,7 +561,7 @@ public static class MassScanner
             // Верх радара = верх экрана. Координаты на карте (поворот карты 0),
             // поэтому общий поворот вида равен повороту камеры.
             _state.Angle = _lastRotation;
-            _window.UpdateState(_state);
+            _radar.UpdateState(_state);
         }
         catch (Exception e)
         {
@@ -680,7 +574,7 @@ public static class MassScanner
         var ent = IoCManager.Resolve<IEntityManager>();
         var transform = ent.System<SharedTransformSystem>();
 
-        if (_coordsLabel != null)
+        if (_coordsLabel is { Disposed: false })
         {
             var world = transform.GetWorldPosition(self) + _pan;
             _coordsLabel.Text = $"({F(world.X)}, {F(world.Y)})";
@@ -692,7 +586,7 @@ public static class MassScanner
     // Раз в RefreshInterval: снимок отметок и состояния радара.
     internal static void Refresh()
     {
-        if (_window is not { IsOpen: true } || _window.Disposed)
+        if (_radar is not { Disposed: false, Parent: not null })
             return;
 
         if (LocalPlayer() is not { } self)
@@ -748,7 +642,7 @@ public static class MassScanner
 
     private static void ApplyCenter()
     {
-        if (_window == null || _state == null || LocalPlayer() is not { } self)
+        if (_radar == null || _state == null || LocalPlayer() is not { } self)
             return;
 
         var ent = IoCManager.Resolve<IEntityManager>();
@@ -760,7 +654,7 @@ public static class MassScanner
         try
         {
             _state.Coordinates = ent.GetNetCoordinates(center);
-            _window.UpdateState(_state);
+            _radar.UpdateState(_state);
         }
         catch (Exception e)
         {
@@ -783,7 +677,7 @@ public static class MassScanner
     // заполняем значениями по умолчанию.
     private static void PushState(EntityUid self)
     {
-        if (_window == null)
+        if (_radar == null)
             return;
 
         var ent = IoCManager.Resolve<IEntityManager>();
@@ -839,7 +733,7 @@ public static class MassScanner
         ScanMarks(self, selfMap, transform, ent);
 
         _state = state;
-        _window.UpdateState(state);
+        _radar.UpdateState(state);
     }
 
     // Отметки: игроки и мобы вокруг. Сам радар чужие сущности не рисует
@@ -918,7 +812,37 @@ public static class MassScanner
     }
 }
 
-// Пока окно радара открыто: каждый кадр — поворот за камерой и панель,
+// Контейнер фрейма сканера: попадая в окно мода, растягивает окно, чтобы
+// радар (648 UI-пикселей) и панель влезли целиком.
+internal sealed class ScannerFrame : BoxContainer
+{
+    private bool _sized;
+
+    public ScannerFrame()
+    {
+        Orientation = BoxContainer.LayoutOrientation.Horizontal;
+    }
+
+    protected override void EnteredTree()
+    {
+        base.EnteredTree();
+
+        if (_sized)
+            return;
+
+        for (Control? c = this; c != null; c = c.Parent)
+        {
+            if (c is BaseWindow window)
+            {
+                window.SetSize = new Vector2(1180f, 800f);
+                _sized = true;
+                break;
+            }
+        }
+    }
+}
+
+// Пока вкладка сканера открыта: каждый кадр — поворот за камерой и панель,
 // раз в Interval — снимок отметок.
 internal sealed class RadarRefresher : Control
 {
