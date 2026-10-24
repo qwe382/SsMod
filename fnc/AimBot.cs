@@ -1342,17 +1342,27 @@ internal static class GunApi
 
             var whitelist = GunSlotWhitelist(ent, gun, out _);
 
-            // Ни одного магазинного слота — перезаряжать нечего. Без этой
-            // проверки в «магазин» попадала виртуальная заглушка двуручного
-            // хвата, и бот бесконечно совал её в ствол: ствол дёргался в руках,
-            // активная рука прыгала туда-сюда.
-            if (whitelist is null)
+            // Одиночное заряжание: револьвер (барабан) и дробовик
+            // (BallisticAmmoProvider прямо на стволе) — магазинного слота нет.
+            // Приоритет у револьвера: спидлоадер, затем одиночные патроны;
+            // у дробовика — патроны из коробок и россыпью. Коробка патронов —
+            // обычный storage, работает тот же путь, что и с магазинами.
+            var feed = FeedWhitelist(ent, gun);
+            if (whitelist is null && feed is null)
             {
+                // Ни одного слота и не одиночное заряжание — перезаряжать
+                // нечего. Без этой проверки в «магазин» попадала виртуальная
+                // заглушка двуручного хвата.
                 Diag(ent, gun, hands, self, "у ствола нет магазинного слота");
                 return;
             }
 
-            // 1) Магазин уже в другой руке — меняем активную руку и вставляем.
+            _singleFeed = feed is not null;
+            if (_singleFeed)
+                _feedCountBefore = CountAmmo(ent, gun).Count;
+
+            // 1) Патроны уже в другой руке — меняем активную руку и вставляем.
+            var accept = feed ?? whitelist;
             foreach (var (hand, item) in items)
             {
                 if (hand == gunHand || item is not { } mag)
@@ -1362,11 +1372,12 @@ internal static class GunApi
                 if (IsVirtual(ent, mag))
                     continue;
 
-                if (!WhitelistMatch(whitelist, ent, mag))
+                if (_singleFeed ? !IsFeedAmmo(ent, mag, feed) : !WhitelistMatch(accept, ent, mag))
                     continue;
 
                 // Пустой магазин не подсовываем: ItemSlots поменяет его на
-                // такой же пустой из ствола.
+                // такой же пустой из ствола. Для одиночного заряжания то же
+                // отсекает стреляные гильзы и пустые спидлоадеры.
                 if (IsEmptyMag(ent, mag))
                     continue;
 
@@ -1381,13 +1392,16 @@ internal static class GunApi
                 return;
             }
 
-            // 2) В руках магазина нет — тянем из надетой сумки/пояса/рюкзака.
-            if (!FindStoredMag(ent, self, gun, whitelist, out var stored, out var storage))
+            // 2) В руках патронов нет — тянем из надетой сумки/пояса/рюкзака.
+            var foundFeed = _singleFeed
+                ? FindFeedAmmo(ent, self, gun, feed, out var stored, out var storage)
+                : FindStoredMag(ent, self, gun, whitelist, out stored, out storage);
+            if (!foundFeed)
             {
-                // Магазины кончились совсем: без долгой паузы бот долбит
+                // Патроны кончились совсем: без долгой паузы бот долбит
                 // перезарядку каждые 0.8 с и заливает лог одной строкой.
                 _lastReload = now + TimeSpan.FromSeconds(30);
-                Diag(ent, gun, hands, self, "магазина нет ни в руках, ни в сумках (пауза 30 с)");
+                Diag(ent, gun, hands, self, "патронов нет ни в руках, ни в сумках (пауза 30 с)");
                 return;
             }
 
@@ -1655,9 +1669,12 @@ internal static class GunApi
                         // Пока шли сюда, ствол могли уже зарядить (или в
                         // патронник попал патрон) — тогда магазин из сумки не
                         // трогаем, иначе он зря окажется в руке.
-                        var (countNow, _) = CountAmmo(ent, _reloadGun);
+                        var (countNow, maxNow) = CountAmmo(ent, _reloadGun);
 
-                        if (countNow > 0)
+                        // Одиночное заряжание: достаём следующий патрон, пока
+                        // барабан/магазин не полон; магазинному — как раньше,
+                        // любого заряда хватит.
+                        if (_singleFeed ? countNow >= maxNow : countNow > 0)
                         {
                             _stage = ReloadStage.Idle;
                             _lastReload = TimeSpan.Zero;
@@ -1723,6 +1740,23 @@ internal static class GunApi
                         return;
                     }
 
+                    // Одиночное заряжание: вставили патрон — если барабан ещё
+                    // не полон и заряд подействовал, берём следующий. Заряд не
+                    // подействовал (счёт не вырос) — заканчиваем, не молотим
+                    // один и тот же патрон бесконечно.
+                    if (_singleFeed)
+                    {
+                        var (countNow, maxNow) = CountAmmo(ent, _reloadGun);
+
+                        if (countNow > _feedCountBefore && countNow < maxNow)
+                        {
+                            _stage = ReloadStage.Idle;
+                            _lastReload = TimeSpan.Zero;
+                            BeginReload(ent, self, _reloadGun, now);
+                            return;
+                        }
+                    }
+
                     FinishReload(ent, hands, active);
                     return;
 
@@ -1763,6 +1797,8 @@ internal static class GunApi
             RaiseHandEvent(ent, SetHandEvent, gunHand);
 
         _stage = ReloadStage.Idle;
+        _singleFeed = false;
+        _feedCountBefore = -1;
     }
 
     // Клиентское предсказуемое событие (RequestSetHandEvent /
@@ -1823,6 +1859,110 @@ internal static class GunApi
                     return true;
                 }
             }
+        }
+
+        return false;
+    }
+
+    // ------------------------------------------------ одиночное заряжание
+
+    private static bool _singleFeed;
+    private static int _feedCountBefore = -1;
+    private static Type? _speedLoader;
+    private static Type? _revolverComp;
+
+    // Белый список одиночного заряжания: у револьвера — барабан
+    // (RevolverAmmoProvider), у дробовика — сам ствол (BallisticAmmoProvider).
+    // Возвращает EntityWhitelist провайдера или null, если ствол не такой.
+    private static object? FeedWhitelist(IEntityManager ent, EntityUid gun)
+    {
+        _revolverComp ??= Compat.FindType("Content.Shared.Weapons.Ranged.Components.RevolverAmmoProviderComponent");
+
+        if (_revolverComp is not null && Comp(ent, gun, _revolverComp) is { } revolver)
+            return GetMember(revolver, "Whitelist");
+
+        return Comp(ent, gun, _ballistic) is { } ballistic ? GetMember(ballistic, "Whitelist") : null;
+    }
+
+    // Годится ли предмет как заряд для одиночного заряжания: спидлоадер
+    // (только револьвер,непустой) или нестреляный патрон. Спидлоадер
+    // приоритетнее — его проверяем первым в поиске.
+    private static bool IsFeedAmmo(IEntityManager ent, EntityUid uid, object? feedWhitelist)
+    {
+        _speedLoader ??= Compat.FindType("Content.Shared.Weapons.Ranged.Components.SpeedLoaderComponent");
+
+        if (_speedLoader is not null
+            && HasComp(ent, uid, _speedLoader)
+            && WhitelistMatch(feedWhitelist, ent, uid))
+            return !IsEmptyMag(ent, uid);
+
+        if (Comp(ent, uid, _cartridge) is { } cartridge)
+            return !Get<bool>(cartridge, "Spent") && WhitelistMatch(feedWhitelist, ent, uid);
+
+        return false;
+    }
+
+    // Поиск заряда в сумках: спидлоадеры приоритетнее одиночных патронов.
+    // Коробка патронов — обычный storage, обход как у магазинов.
+    private static bool FindFeedAmmo(IEntityManager ent, EntityUid player, EntityUid gun, object? feedWhitelist,
+        out EntityUid mag, out EntityUid storage)
+    {
+        mag = EntityUid.Invalid;
+        storage = EntityUid.Invalid;
+
+        var storageType = Compat.FindType("Content.Shared.Storage.StorageComponent");
+        if (storageType is null || !ent.TryGetComponent(player, out ContainerManagerComponent? manager))
+            return false;
+
+        var isRevolver = _revolverComp is not null && HasComp(ent, gun, _revolverComp);
+        EntityUid loose = default;
+        EntityUid looseBox = default;
+
+        foreach (var (_, container) in manager.Containers)
+        {
+            foreach (var worn in container.ContainedEntities)
+            {
+                if (!HasComp(ent, worn, storageType))
+                    continue;
+
+                foreach (var item in Containers(ent, worn, 2))
+                {
+                    if (item == gun || IsVirtual(ent, item))
+                        continue;
+
+                    _speedLoader ??= Compat.FindType("Content.Shared.Weapons.Ranged.Components.SpeedLoaderComponent");
+
+                    // Спидлоадер — только револьверу, и он приоритетнее.
+                    if (isRevolver
+                        && _speedLoader is not null
+                        && HasComp(ent, item, _speedLoader)
+                        && WhitelistMatch(feedWhitelist, ent, item)
+                        && !IsEmptyMag(ent, item))
+                    {
+                        mag = item;
+                        storage = worn;
+                        return true;
+                    }
+
+                    // Одиночный патрон запоминаем и берём, если спидлоадера
+                    // не нашлось ни в одной сумке.
+                    if (loose == default
+                        && Comp(ent, item, _cartridge) is { } cartridge
+                        && !Get<bool>(cartridge, "Spent")
+                        && WhitelistMatch(feedWhitelist, ent, item))
+                    {
+                        loose = item;
+                        looseBox = worn;
+                    }
+                }
+            }
+        }
+
+        if (loose != default)
+        {
+            mag = loose;
+            storage = looseBox;
+            return true;
         }
 
         return false;
