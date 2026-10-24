@@ -1281,6 +1281,7 @@ internal static class GunApi
     private static EntityUid _rewieldGun;
     private static TimeSpan _unwieldClickAt;
     private static int _unwieldTries;
+    private static TimeSpan? _unwieldStableSince;
     private static string? _freeHandName;
     private static int _openTried;
     private static bool _storageSent;
@@ -1415,6 +1416,7 @@ internal static class GunApi
                     _stage = ReloadStage.Unwielding;
                     _stageAt = now;
                     _unwieldTries = 0;
+                    _unwieldStableSince = null;
 
                     Note("[SsMod] перезарядка: убираю ствол из двух рук, чтобы освободить руку");
 
@@ -1585,6 +1587,10 @@ internal static class GunApi
                 case ReloadStage.Unwielding:
                     if (ent.TryGetComponent(_reloadGun, out WieldableComponent? wield) && wield.Wielded)
                     {
+                        // Предикт мог мигнуть «снято» и откатиться сервером —
+                        // подтверждением считаем только устойчивое состояние.
+                        _unwieldStableSince = null;
+
                         if (active != _gunHand)
                         {
                             if (_gunHand is { } toGun)
@@ -1601,31 +1607,39 @@ internal static class GunApi
                         _unwieldClickAt = now;
                         _unwieldTries++;
 
-                        // Два независимых серверных пути, чередуем: верба
-                        // «Unwield» (сервер может не сматчить её по тексту) и
-                        // клик по слоту руки (RequestUseInHand — WieldableSystem
-                        // подписан на UseInHand с before:, у магазинного оружия
-                        // хватает приоритета). Каждый путь логируется, чтобы по
-                        // логу было видно, кто именно снял хват.
+                        // Первым — штатный путь игрока: клик по слоту руки
+                        // (RequestUseInHand -> UseInHand, WieldableSystem стоит
+                        // в подписках раньше оружейных систем). Верба — запасной
+                        // путь: сервер может не сматчить её по тексту, тогда
+                        // клиентский предикт «хват снят» откатывается и ствол
+                        // визуально остаётся в двух руках.
                         if (_unwieldTries % 2 == 1)
-                        {
-                            Note("[SsMod] перезарядка: снимаю хват вербой");
-                            TryWieldVerb(_reloadGun, self, false);
-                        }
-                        else
                         {
                             Note("[SsMod] перезарядка: снимаю хват кликом по слоту");
                             RaiseEvent(ent, "Content.Shared.Hands.RequestUseInHandEvent");
                         }
+                        else
+                        {
+                            Note("[SsMod] перезарядка: снимаю хват вербой");
+                            TryWieldVerb(_reloadGun, self, false);
+                        }
 
                         return;
                     }
+
+                    // Не вооружён: ждём устойчивого состояния — предикт мог
+                    // мигнуть раньше, чем сервер отклонил команду.
+                    _unwieldStableSince ??= now;
+
+                    if (now - _unwieldStableSince < TimeSpan.FromSeconds(0.4))
+                        return;
 
                     if (_unwieldTries > 0)
                         Note("[SsMod] перезарядка: хват снят");
 
                     _stage = ReloadStage.Idle;
                     _lastReload = TimeSpan.Zero;
+                    _unwieldStableSince = null;
                     BeginReload(ent, self, _reloadGun, now);
                     return;
 
