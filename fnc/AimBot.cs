@@ -1359,7 +1359,44 @@ internal static class GunApi
 
             _singleFeed = feed is not null;
             if (_singleFeed)
+            {
                 _feedCountBefore = CountAmmo(ent, gun).Count;
+                _feedSlow = false;
+
+                // Барабан без свободных гнёзд, но не полный — всё занято
+                // стреляными гильзами. Выбрасываем их вербой «Опустошить»,
+                // следующая попытка перезарядки пойдёт в пустой барабан.
+                if (_revolverComp is not null && Comp(ent, gun, _revolverComp) is { } cylinder)
+                {
+                    var (cnt, maxCnt) = CountAmmo(ent, gun);
+                    var slots = GetMember(cylinder, "AmmoSlots") as IEnumerable;
+                    var chambers = GetField(cylinder, "Chambers")?.GetValue(cylinder) as Array;
+                    var freeSlots = 0;
+                    var index = 0;
+
+                    if (slots is not null)
+                    {
+                        foreach (var slot in slots)
+                        {
+                            if (slot is null
+                                && chambers is not null
+                                && index < chambers.Length
+                                && chambers.GetValue(index) is null)
+                                freeSlots++;
+
+                            index++;
+                        }
+                    }
+
+                    if (cnt < maxCnt && freeSlots == 0)
+                    {
+                        Note("[SsMod] перезарядка: выбрасываю гильзы из барабана");
+                        TryEmptyRevolverVerb(gun, self);
+                        _lastReload = now + TimeSpan.FromSeconds(1.2);
+                        return;
+                    }
+                }
+            }
 
             // 1) Патроны уже в другой руке — меняем активную руку и вставляем.
             var accept = feed ?? whitelist;
@@ -1404,6 +1441,12 @@ internal static class GunApi
                 Diag(ent, gun, hands, self, "патронов нет ни в руках, ни в сумках (пауза 30 с)");
                 return;
             }
+
+            // Коробка патронов — перекачка доафтером, результат ждём дольше.
+            _feedSlow = _singleFeed
+                        && Comp(ent, stored, _ballistic) is not null
+                        && Comp(ent, stored, _cartridge) is null
+                        && !HasComp(ent, stored, _speedLoader);
 
             // Без свободной руки StorageInteractWithItem ничего не вынет.
             string? free = null;
@@ -1516,7 +1559,8 @@ internal static class GunApi
             {
                 ReloadStage.Unwielding => 6,
                 ReloadStage.Dropping => 2.5,
-                _ => 2,
+                // Коробка перекачивает патроны доафтером — стадии с ней живём дольше.
+                _ => _feedSlow ? 4 : 2,
             };
 
             if (now - _stageAt > TimeSpan.FromSeconds(stageLimit))
@@ -1684,7 +1728,13 @@ internal static class GunApi
 
                         _storageSent = true;
                         _stageAt = now;
-                        RaiseEvent(ent, StorageEvent, ent.GetNetEntity(_mag), ent.GetNetEntity(_storage));
+
+                        // Карман (storage == mag): предмет вынимается кликом
+                        // по нему с пустой активной рукой, не StorageInteract.
+                        if (_storage == _mag)
+                            InteractQueue.ClickEntity(ent, _mag);
+                        else
+                            RaiseEvent(ent, StorageEvent, ent.GetNetEntity(_mag), ent.GetNetEntity(_storage));
                         return;
                     }
 
@@ -1722,7 +1772,7 @@ internal static class GunApi
                     break;
 
                 case ReloadStage.Interacted:
-                    if (now - _stageAt < TimeSpan.FromSeconds(0.35))
+                    if (now - _stageAt < TimeSpan.FromSeconds(_feedSlow ? 2.5 : 0.35))
                         return;
 
                     // ItemSlots при занятом слоте меняет магазины местами,
@@ -1799,6 +1849,7 @@ internal static class GunApi
         _stage = ReloadStage.Idle;
         _singleFeed = false;
         _feedCountBefore = -1;
+        _feedSlow = false;
     }
 
     // Клиентское предсказуемое событие (RequestSetHandEvent /
@@ -1845,6 +1896,17 @@ internal static class GunApi
         {
             foreach (var worn in container.ContainedEntities)
             {
+                // Карман — не storage: магазин в кармане сам является worn.
+                // Помечаем этот случай storage == mag: TakingMag вынет его
+                // кликом по предмету, а не StorageInteractWithItem.
+                if (worn != gun && !IsVirtual(ent, worn)
+                    && WhitelistMatch(whitelist, ent, worn) && !IsEmptyMag(ent, worn))
+                {
+                    mag = worn;
+                    storage = worn;
+                    return true;
+                }
+
                 if (!HasComp(ent, worn, storageType))
                     continue;
 
@@ -1868,6 +1930,10 @@ internal static class GunApi
 
     private static bool _singleFeed;
     private static int _feedCountBefore = -1;
+
+    // Коробка перекачивает боезапас доафтером (~секунда) — результат ждём
+    // дольше, чем одиночную вставку патрона.
+    private static bool _feedSlow;
     private static Type? _speedLoader;
     private static Type? _revolverComp;
 
@@ -1885,8 +1951,7 @@ internal static class GunApi
     }
 
     // Годится ли предмет как заряд для одиночного заряжания: спидлоадер
-    // (только револьвер,непустой) или нестреляный патрон. Спидлоадер
-    // приоритетнее — его проверяем первым в поиске.
+    // (только револьвер, с живыми патронами) или нестреляный патрон.
     private static bool IsFeedAmmo(IEntityManager ent, EntityUid uid, object? feedWhitelist)
     {
         _speedLoader ??= Compat.FindType("Content.Shared.Weapons.Ranged.Components.SpeedLoaderComponent");
@@ -1894,7 +1959,7 @@ internal static class GunApi
         if (_speedLoader is not null
             && HasComp(ent, uid, _speedLoader)
             && WhitelistMatch(feedWhitelist, ent, uid))
-            return !IsEmptyMag(ent, uid);
+            return LiveRounds(ent, uid) > 0;
 
         if (Comp(ent, uid, _cartridge) is { } cartridge)
             return !Get<bool>(cartridge, "Spent") && WhitelistMatch(feedWhitelist, ent, uid);
@@ -1902,8 +1967,64 @@ internal static class GunApi
         return false;
     }
 
-    // Поиск заряда в сумках: спидлоадеры приоритетнее одиночных патронов.
-    // Коробка патронов — обычный storage, обход как у магазинов.
+    // Живые патроны в провайдере (магазин/спидлоадер/коробка): нерасходованные
+    // плюс реальные патроны, которые ещё не стреляны. Считать все сущности
+    // нельзя — стреляные гильзы тоже лежат в списке, и пустой на деле
+    // спидлоадер выглядел заряженным.
+    private static int LiveRounds(IEntityManager ent, EntityUid uid)
+    {
+        if (Comp(ent, uid, _ballistic) is not { } ballistic)
+            return 0;
+
+        var live = Get<int>(ballistic, "UnspawnedCount");
+
+        if (GetMember(ballistic, "Entities") is IEnumerable list)
+        {
+            foreach (var one in list)
+            {
+                if (ToUid(ent, one) is not { } round)
+                    continue;
+
+                if (Comp(ent, round, _cartridge) is { } cartridge && !Get<bool>(cartridge, "Spent"))
+                    live++;
+            }
+        }
+
+        return live;
+    }
+
+    // Пересекаются ли белые списки (по тегам) — так коробка патронов
+    // матчится к стволу: у обоих тег ShellShotgun.
+    private static bool TagsOverlap(object? a, object? b)
+    {
+        var tagsA = GetMember(a, "Tags") as IEnumerable;
+        var tagsB = GetMember(b, "Tags") as IEnumerable;
+        if (tagsA is null || tagsB is null)
+            return false;
+
+        var set = new HashSet<string>();
+        foreach (var tag in tagsA)
+        {
+            var id = tag?.ToString();
+            if (!string.IsNullOrEmpty(id))
+                set.Add(id!);
+        }
+
+        foreach (var tag in tagsB)
+        {
+            var id = tag?.ToString();
+            if (!string.IsNullOrEmpty(id) && set.Contains(id!))
+                return true;
+        }
+
+        return false;
+    }
+
+    // Поиск заряда в сумках. Приоритет: револьверу — спидлоадер, дробовику —
+    // коробку патронов (BallisticAmmoProvider с совпадающим тегом: клик
+    // коробкой по стволу переносит весь боезапас), и только потом одиночные
+    // патроны. Коробка — не storage: она сама провайдер, «достать» из неё
+    // нельзя, можно только перекачать кликом по стволу.
     private static bool FindFeedAmmo(IEntityManager ent, EntityUid player, EntityUid gun, object? feedWhitelist,
         out EntityUid mag, out EntityUid storage)
     {
@@ -1914,38 +2035,61 @@ internal static class GunApi
         if (storageType is null || !ent.TryGetComponent(player, out ContainerManagerComponent? manager))
             return false;
 
+        _speedLoader ??= Compat.FindType("Content.Shared.Weapons.Ranged.Components.SpeedLoaderComponent");
         var isRevolver = _revolverComp is not null && HasComp(ent, gun, _revolverComp);
+
         EntityUid loose = default;
         EntityUid looseBox = default;
+        EntityUid box = default;
+        EntityUid boxHome = default;
 
         foreach (var (_, container) in manager.Containers)
         {
             foreach (var worn in container.ContainedEntities)
             {
-                if (!HasComp(ent, worn, storageType))
-                    continue;
+                // Спидлоадер или патрон прямо в кармане — сам worn
+                // (storage == mag, карманный забор кликом по предмету).
+                if (isRevolver && worn != gun && !IsVirtual(ent, worn)
+                    && _speedLoader is not null && HasComp(ent, worn, _speedLoader)
+                    && WhitelistMatch(feedWhitelist, ent, worn)
+                    && LiveRounds(ent, worn) > 0)
+                {
+                    mag = worn;
+                    storage = worn;
+                    return true;
+                }
+
+                if (loose == default && worn != gun && !IsVirtual(ent, worn)
+                    && Comp(ent, worn, _cartridge) is { } wornCart
+                    && !Get<bool>(wornCart, "Spent")
+                    && WhitelistMatch(feedWhitelist, ent, worn))
+                {
+                    loose = worn;
+                    looseBox = worn;
+                }
 
                 foreach (var item in Containers(ent, worn, 2))
                 {
                     if (item == gun || IsVirtual(ent, item))
                         continue;
 
-                    _speedLoader ??= Compat.FindType("Content.Shared.Weapons.Ranged.Components.SpeedLoaderComponent");
-
-                    // Спидлоадер — только револьверу, и он приоритетнее.
+                    // Спидлоадер — только револьверу, высший приоритет.
                     if (isRevolver
                         && _speedLoader is not null
                         && HasComp(ent, item, _speedLoader)
                         && WhitelistMatch(feedWhitelist, ent, item)
-                        && !IsEmptyMag(ent, item))
+                        && LiveRounds(ent, item) > 0)
                     {
                         mag = item;
                         storage = worn;
                         return true;
                     }
 
-                    // Одиночный патрон запоминаем и берём, если спидлоадера
-                    // не нашлось ни в одной сумке.
+                    // Коробка в подсумке/рюкзаке — это item.
+                    TryBox(item, worn, ref box, ref boxHome);
+
+                    // Одиночный патрон запоминаем и берём, если приоритетнее
+                    // ничего не нашлось.
                     if (loose == default
                         && Comp(ent, item, _cartridge) is { } cartridge
                         && !Get<bool>(cartridge, "Spent")
@@ -1958,6 +2102,20 @@ internal static class GunApi
             }
         }
 
+        if (isRevolver && loose != default)
+        {
+            mag = loose;
+            storage = looseBox;
+            return true;
+        }
+
+        if (!isRevolver && box != default)
+        {
+            mag = box;
+            storage = boxHome;
+            return true;
+        }
+
         if (loose != default)
         {
             mag = loose;
@@ -1966,6 +2124,25 @@ internal static class GunApi
         }
 
         return false;
+
+        // Коробка патронов: сама BallisticAmmoProvider с живыми патронами и
+        // совпадающими со стволом тегами. Лежит в подсумке/рюкзаке (storage) —
+        // оттуда её достаёт тот же механизм, что и магазины. Оружие и
+        // спидлоадеры коробками не считаем.
+        void TryBox(EntityUid uid, EntityUid home, ref EntityUid found, ref EntityUid foundHome)
+        {
+            if (found != default || isRevolver || uid == gun
+                || !HasComp(ent, home, storageType)
+                || Comp(ent, uid, _ballistic) is not { } ballistic
+                || HasComp(ent, uid, _speedLoader)
+                || ent.HasComponent<GunComponent>(uid)
+                || LiveRounds(ent, uid) <= 0
+                || !TagsOverlap(GetMember(ballistic, "Whitelist"), feedWhitelist))
+                return;
+
+            found = uid;
+            foundHome = home;
+        }
     }
 
     // Первый слот ствола с белым списком (не патронник): его список решает,
@@ -2276,6 +2453,33 @@ internal static class GunApi
             return ExecuteVerb(gun, fallback);
 
         Note($"[SsMod] две руки: ждал «{text}», есть [{string.Join(" | ", seen)}]");
+        return false;
+    }
+
+    // Верба «Опустошить» у револьвера: выбрасывает всё из барабана, включая
+    // стреляные гильзы. Матчим по имени метода вербы (EmptyRevolver), запасной
+    // путь — текст локали gun-revolver-empty.
+    private static bool TryEmptyRevolverVerb(EntityUid gun, EntityUid user)
+    {
+        var verbs = LocalVerbs(gun, user, typeof(Content.Shared.Verbs.AlternativeVerb));
+        if (verbs is null)
+            return false;
+
+        foreach (var verb in verbs)
+        {
+            if (verb.Act?.Method?.Name.Contains("EmptyRevolver") ?? false)
+                return ExecuteVerb(gun, verb);
+        }
+
+        var text = Loc.GetString("gun-revolver-empty");
+
+        foreach (var verb in verbs)
+        {
+            if (verb.Text == text)
+                return ExecuteVerb(gun, verb);
+        }
+
+        Note("[SsMod] перезарядка: вербу «опустошить» не нашла");
         return false;
     }
 

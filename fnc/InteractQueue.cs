@@ -280,6 +280,50 @@ internal static class InteractQueue
         }
     }
 
+    // Клик «использовать» по сущности — та же пара Down+Up, что делает
+    // предикт. Годится, чтобы вынуть предмет из кармана: с пустой активной
+    // рукой клик по предмету в слоте инвентаря берёт его в руку.
+    public static void ClickEntity(IEntityManager ent, EntityUid target)
+    {
+        var player = IoCManager.Resolve<Robust.Client.Player.IPlayerManager>();
+        var inputManager = IoCManager.Resolve<Robust.Client.Input.IInputManager>();
+        var timing = IoCManager.Resolve<IGameTiming>();
+
+        if (player.LocalSession is not { } session
+            || !ent.TryGetComponent(target, out TransformComponent? xform))
+            return;
+
+        var world = ent.System<SharedTransformSystem>().GetWorldPosition(target);
+        var screen = new ScreenCoordinates(
+            IoCManager.Resolve<Robust.Client.Graphics.IEyeManager>().WorldToScreen(world), default);
+
+        var inputSystem = ent.System<Robust.Client.GameObjects.InputSystem>();
+        var id = inputManager.NetworkBindMap.KeyFunctionID(Robust.Shared.Input.EngineKeyFunctions.Use);
+
+        var down = new Robust.Shared.Input.ClientFullInputCmdMessage(
+            timing.CurTick, default, id, xform.Coordinates, screen,
+            Robust.Shared.Input.BoundKeyState.Down, target);
+        var up = new Robust.Shared.Input.ClientFullInputCmdMessage(
+            timing.CurTick, 1, id, xform.Coordinates, screen,
+            Robust.Shared.Input.BoundKeyState.Up, target);
+
+        Retrying = true;
+
+        try
+        {
+            inputSystem.HandleInputCommand(session, Robust.Shared.Input.EngineKeyFunctions.Use, down, replay: true);
+            inputSystem.HandleInputCommand(session, Robust.Shared.Input.EngineKeyFunctions.Use, up, replay: true);
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine($"[SsMod] предикт: клик по сущности не удался: {e.Message}");
+        }
+        finally
+        {
+            Retrying = false;
+        }
+    }
+
     // Таймер у цели: готовые кадры cooldown-0..8 из ресурсов игры — кадр по
     // остатку секунд. Если текстур нет (чужой форк) — рисованный круг.
     public static void Draw(DrawingHandleScreen handle, Vector2 center, IGameTiming timing)
