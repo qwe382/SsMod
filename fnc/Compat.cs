@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Numerics;
 using System.Reflection;
 using System.Text;
@@ -69,6 +70,7 @@ internal static class Compat
     private static bool _damageResolved;
     private static Type? _damageType;
     private static MemberInfo? _totalDamage;
+    private static MemberInfo? _damageDict;
 
     // В 276 компонент — Content.Shared.Damage.Components.DamageableComponent,
     // в 290 — Content.Shared.Damage.DamageableComponent. Берём тот, что есть.
@@ -84,11 +86,45 @@ internal static class Compat
                           ?? FindType("Content.Shared.Damage.DamageableComponent");
 
             if (_damageType != null)
+            {
                 _totalDamage = (MemberInfo?) _damageType.GetField("TotalDamage")
                                ?? _damageType.GetProperty("TotalDamage");
 
+                _damageDict = (MemberInfo?) _damageType.GetField("DamageDict")
+                              ?? _damageType.GetProperty("DamageDict");
+            }
+
             return _damageType;
         }
+    }
+
+    // Разбивка урона цели по типам: «тип урона -> сколько». null — на этой
+    // сборке компонента/словаря нет.
+    public static List<(string Id, float Value)>? GetDamageDict(IEntityManager ent, EntityUid uid)
+    {
+        var type = DamageableType;
+        var member = _damageDict;
+        if (type == null || member == null)
+            return null;
+
+        if (!ent.TryGetComponent(uid, type, out var component) || component == null)
+            return null;
+
+        var raw = member is FieldInfo field
+            ? field.GetValue(component)
+            : ((PropertyInfo) member).GetValue(component);
+
+        if (raw is not IDictionary dict)
+            return null;
+
+        var list = new List<(string Id, float Value)>(dict.Count);
+        foreach (DictionaryEntry item in dict)
+        {
+            var value = item.Value is FixedPoint2 fixedPoint ? (float) fixedPoint : 0f;
+            list.Add(((string) item.Key!, value));
+        }
+
+        return list;
     }
 
     // Суммарный урон цели. null — на этой сборке такого компонента нет, полоску HP не рисуем.
