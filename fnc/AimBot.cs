@@ -2011,18 +2011,23 @@ internal static class GunApi
     }
 
     // Пересекаются ли белые списки (по тегам) — так коробка патронов
-    // матчится к стволу: у обоих тег ShellShotgun. Пустой список у любой из
-    // сторон считаем совпадением: итоговый калибр при переносе всё равно
-    // проверяет сервер.
+    // матчится к стволу: у обоих тег ShellShotgun.
+    //
+    // ЗАГЛУШКА, доделать: у части стволов (двухстволка) белый список
+    // провайдера пуст, и коробка к ним не матчится — из-за этого дробовик
+    // не перезаряжается из коробки. Нужно придумать запасной матчинг
+    // (например, по прототипу патрона в коробке против whitelist ствола
+    // или по тегу калибра у самого ствола). Пока без списка — не совпадает,
+    // чтобы не совать чужой калибр.
     private static bool TagsOverlap(object? a, object? b)
     {
         if (a is null || b is null)
-            return true;
+            return false;
 
         var tagsA = GetMember(a, "Tags") as IEnumerable;
         var tagsB = GetMember(b, "Tags") as IEnumerable;
         if (tagsA is null || tagsB is null)
-            return true;
+            return false;
 
         var set = new HashSet<string>();
         foreach (var tag in tagsA)
