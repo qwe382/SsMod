@@ -19,7 +19,7 @@ public sealed class SsModWindow : DefaultWindow
         ("Фрейм 1", BuildFrame1),
         ("ESP", Esp.BuildTab),
         ("Персонажи", Characters.BuildTab),
-        ("Сканер", MassScanner.BuildTab),
+        ("Другое", MassScanner.BuildTab),
         // Фрейм «Визуалы»: внутри свои вкладки — gun-bot, дуга патронов, трейсы.
         ("Визуалы", Visuals.BuildTab),
         ("Конфиг", Config.BuildTab),

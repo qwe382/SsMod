@@ -116,9 +116,6 @@ public static class Config
                 if (float.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds))
                     InteractQueue.Seconds = Math.Clamp(seconds, 0.2f, 10f);
             });
-
-        // Сканер массы: оверлей в игре (палка/стрелка до выбранной точки).
-        MassScanner.RegisterConfig();
     }
 
     // ---------- Конфиг по умолчанию ----------
@@ -174,9 +171,6 @@ public static class Config
     {
         Entries.Add(new Entry { Key = key, Get = get, Set = set });
     }
-
-    // Для фич, которые регистрируют свои ключи сами (MassScanner и др.).
-    internal static void AddPublic(string key, Func<string> get, Action<string> set) => Add(key, get, set);
 
     // Обход публичных полей типа. instance == null — статический тип (EspSettings),
     // иначе — конкретный объект (категория или полоска).
