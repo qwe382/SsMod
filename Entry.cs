@@ -51,6 +51,10 @@ public static class ModEntry
 
             Console.WriteLine($"[SsMod] Harmony patched: {applied} ok, {failed} failed");
 
+            // Зрение робота и прочие vision-оверлеи: типы есть не во всех
+            // версиях клиента, поэтому ищем и патчим рефлексией, вне PatchAll.
+            Fnc.NoEffects.PatchVisionOverlays(harmony);
+
             // Safety net: if the marsey loader routed here directly (not via MarseyEntry),
             // hide the assembly now that patching is done. Idempotent.
             Sedition.hideDelegate?.Invoke(typeof(ModEntry).Assembly);

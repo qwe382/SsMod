@@ -42,7 +42,7 @@ internal static class Targeting
     // Ближайший персонаж к точке мира (курсор) в радиусе radius тайлов.
     // 1 тайл = 1 единица мира, зумы тут ни при чём.
     //
-    // Своих не отдаём никогда, даже если курсор стоит ровно на них: Make Friend
+    // Свои не отдаём никогда, даже если курсор стоит ровно на них: Make Friend
     // означает «не атаковать», а не только «не выбирать автоцелью».
     public static EntityUid? UnderPoint(IEntityManager ent, EntityUid self, Vector2 world, float radius)
     {
@@ -52,10 +52,10 @@ internal static class Targeting
 
         foreach (var uid in Alive(ent))
         {
-            if (uid == self || !Usable(ent, uid))
+            if (uid == self || !Usable(ent, uid) || InSameBody(ent, uid, self))
                 continue;
 
-            if (Priorities.Get(uid) == Priority.Friend)
+            if (PriorityOf(ent, uid) == Priority.Friend)
                 continue;
 
             var dist = (transform.GetWorldPosition(uid) - world).LengthSquared();
@@ -81,10 +81,10 @@ internal static class Targeting
 
         foreach (var uid in Alive(ent))
         {
-            if (uid == self || !Usable(ent, uid))
+            if (uid == self || !Usable(ent, uid) || InSameBody(ent, uid, self))
                 continue;
 
-            if (Priorities.Get(uid) != Priority.Enemy)
+            if (PriorityOf(ent, uid) != Priority.Enemy)
                 continue;
 
             if (transform.GetMapId(uid) != selfMap)
@@ -99,6 +99,53 @@ internal static class Targeting
         }
 
         return found;
+    }
+
+    // Один «организм»: uid — предок self или внутри self. Позитронный мозг —
+    // моб с MobStateComponent, лежащий внутри робота: без этой проверки мелбот
+    // брал его (или само тело робота) целью и бил сам за себя.
+    private static bool InSameBody(IEntityManager ent, EntityUid uid, EntityUid self)
+    {
+        return IsAncestor(ent, uid, self) || IsAncestor(ent, self, uid);
+    }
+
+    // Метка цели: своя, а если цели нет — наследуется от носителя. Чужой
+    // позитронный мозг лежит контейнером внутри тела робота, метку игрок
+    // ставит по телу — без наследования «Make Friend» на роботе не спасал
+    // от прицеливания в его мозг.
+    private static Priority PriorityOf(IEntityManager ent, EntityUid uid)
+    {
+        var priority = Priorities.Get(uid);
+        if (priority != Priority.Neutral)
+            return priority;
+
+        var current = uid;
+        while (ent.TryGetComponent(current, out TransformComponent? transform)
+               && transform.ParentUid != EntityUid.Invalid)
+        {
+            current = transform.ParentUid;
+            priority = Priorities.Get(current);
+            if (priority != Priority.Neutral)
+                return priority;
+        }
+
+        return Priority.Neutral;
+    }
+
+    // Идём по родителям from, пока не встретим to.
+    private static bool IsAncestor(IEntityManager ent, EntityUid from, EntityUid to)
+    {
+        var current = from;
+        while (ent.TryGetComponent(current, out TransformComponent? transform))
+        {
+            current = transform.ParentUid;
+            if (current == to)
+                return true;
+            if (current == EntityUid.Invalid || current == from)
+                return false;
+        }
+
+        return false;
     }
 
     // Персонаж ещё годен в цели: у него есть трансформ и он не удалён.
