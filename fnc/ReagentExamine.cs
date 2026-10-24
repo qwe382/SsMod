@@ -505,14 +505,5 @@ internal static class ReagentExaminePatch
         {
             Console.Error.WriteLine($"[SsMod] examine reagents failed: {e.Message}");
         }
-
-        try
-        {
-            DamageExamine.Append(message, target);
-        }
-        catch (Exception e)
-        {
-            Console.Error.WriteLine($"[SsMod] examine damage failed: {e.Message}");
-        }
     }
 }

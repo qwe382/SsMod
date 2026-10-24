@@ -141,8 +141,8 @@ public static class Config
             MelBotOverlay.AutoAttackLmb = false;
         });
 
-        // Точки наводки gun-bot'а. Крио-бот на старте не включаем: он бьёт сам.
-        Step("наводка", () => GunBot.SetAim(true));
+        // Точки наводки gun-bot'а по умолчанию выключены. Крио-бот тоже.
+        Step("наводка", () => GunBot.SetAim(false));
 
         Step("блокировка камеры", () => CameraLock.Toggle(true));
         Step("без эффектов", () => NoEffects.Toggle(true));

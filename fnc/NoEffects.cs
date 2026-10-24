@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Reflection;
 using Content.Client.Drowsiness;
 using Content.Client.Drugs;
@@ -8,9 +7,7 @@ using Content.Client.Eye.Blinding;
 using Content.Client.Flash;
 using Content.Client.UserInterface.Systems.DamageOverlays.Overlays;
 using HarmonyLib;
-using Robust.Client.Graphics;
 using Robust.Client.UserInterface.Controls;
-using Robust.Shared.IoC;
 
 namespace SsMod.Fnc;
 
@@ -37,48 +34,6 @@ public static class NoEffects
     {
         Enabled = on;
         Console.WriteLine($"[SsMod] no screen effects = {on}");
-
-        // Оверлеи, добавленные до включения твика (или до наложения патчей),
-        // остаются в менеджере: вычищаем их вручную.
-        if (on)
-            Purge();
-    }
-
-    // Удаляет из менеджера уже добавленные vision-оверлеи.
-    private static void Purge()
-    {
-        try
-        {
-            var overlays = IoCManager.Resolve<IOverlayManager>();
-            var managerType = Compat.FindType("Robust.Client.Graphics.OverlayManager");
-            var field = managerType?.GetField("_overlays",
-                BindingFlags.NonPublic | BindingFlags.Instance);
-
-            if (field?.GetValue(overlays) is not IDictionary dict)
-                return;
-
-            var removed = 0;
-            var keys = new List<Type>();
-            foreach (Type type in dict.Keys)
-                keys.Add(type);
-
-            foreach (var type in keys)
-            {
-                if (!IsVisionOverlay(type, null))
-                    continue;
-
-                overlays.RemoveOverlay(type);
-                removed++;
-                Console.WriteLine($"[SsMod] no effects: убран добавленный оверлей {type.Name}");
-            }
-
-            if (removed > 0)
-                Console.WriteLine($"[SsMod] no effects: вычищено оверлеев: {removed}");
-        }
-        catch (Exception e)
-        {
-            Console.Error.WriteLine($"[SsMod] no effects: чистка: {e.Message}");
-        }
     }
 
     // Зрение робота/борга (Frontier, КПБ) и прочие «vision»-оверлеи —
@@ -119,7 +74,6 @@ public static class NoEffects
             .GetMethod(nameof(VisionDrawPrefix), BindingFlags.NonPublic | BindingFlags.Static)!);
 
         var patched = 0;
-        var closed = new List<string>();
         foreach (var type in types)
         {
             if (!IsVisionOverlay(type, overlayType))
@@ -144,7 +98,6 @@ public static class NoEffects
             {
                 harmony.Patch(draw, prefix: prefix);
                 patched++;
-                closed.Add(type.Name);
             }
             catch (Exception e)
             {
@@ -166,7 +119,7 @@ public static class NoEffects
                 harmony.Patch(add, prefix: new HarmonyMethod(typeof(NoEffects)
                     .GetMethod(nameof(BlockVisionAddPrefix), BindingFlags.NonPublic | BindingFlags.Static)!));
                 Console.WriteLine("[SsMod] no screen effects: vision-оверлеев закрыто " +
-                                  $"{patched} ({string.Join(", ", closed)}), добавление заблокировано");
+                                  $"{patched}, добавление заблокировано");
                 return;
             }
             catch (Exception e)
@@ -175,8 +128,7 @@ public static class NoEffects
             }
         }
 
-        Console.WriteLine($"[SsMod] no screen effects: vision-оверлеев закрыто {patched} " +
-                          $"({string.Join(", ", closed)})");
+        Console.WriteLine($"[SsMod] no screen effects: vision-оверлеев закрыто {patched}");
     }
 
     // Экранный эффект зрения: имя содержит «Vision» и кончается на Overlay.
@@ -193,20 +145,9 @@ public static class NoEffects
 
     private static bool VisionDrawPrefix() => !Enabled;
 
-    // Лог всех добавлений оверлеев: первые 40 показывают, какой оверлей
-    // рисует роботу его «зрение», даже если фильтр его не ловит.
-    private static int _addLogged;
-
     private static bool BlockVisionAddPrefix(object overlay)
     {
-        var type = overlay.GetType();
-        var blocked = Enabled && IsVisionOverlay(type, null);
-
-        if (_addLogged++ < 40)
-            Console.WriteLine($"[SsMod] no effects: AddOverlay {type.Name} -> " +
-                              (blocked ? "заблокирован" : "пропущен"));
-
-        return !blocked;
+        return !(Enabled && IsVisionOverlay(overlay.GetType(), null));
     }
 }
 
