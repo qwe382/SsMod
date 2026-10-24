@@ -24,6 +24,10 @@ public static class DamageExamine
 
     private static bool _loggedHook;
 
+    // Почему осмотр не дописал урон — пишем в лог первые несколько раз,
+    // чтобы было видно причину («не показывает» без объяснений).
+    private static int _diagLogged;
+
     internal static void Append(FormattedMessage message, EntityUid target)
     {
         if (!_loggedHook)
@@ -41,11 +45,17 @@ public static class DamageExamine
 
         // Только персонажи и мобы.
         if (!ent.HasComponent<MobStateComponent>(target))
+        {
+            Diag($"цель {target} — не персонаж (нет MobStateComponent)");
             return;
+        }
 
         var dict = Compat.GetDamageDict(ent, target);
-        if (dict == null || dict.Count == 0)
+        if (dict == null)
+        {
+            Diag($"цель {target} — DamageableComponent не найден");
             return;
+        }
 
         var total = 0f;
         var entries = new List<(string Name, string Color, float Value)>(dict.Count);
@@ -59,8 +69,13 @@ public static class DamageExamine
             entries.Add((Name(id), Color(id), value));
         }
 
+        // Персонаж цел: так и пишем, чтобы осмотр не выглядел сломанным.
         if (entries.Count == 0)
+        {
+            Diag($"цель {target} — урона нет (типов в словаре {dict.Count})");
+            message.AddMarkupOrThrow("\n[color=gray]Урона нет[/color]");
             return;
+        }
 
         // Больший урон — выше.
         entries.Sort((a, b) => b.Value.CompareTo(a.Value));
@@ -82,6 +97,14 @@ public static class DamageExamine
         }
 
         message.AddMarkupOrThrow(sb.ToString());
+    }
+
+    private static void Diag(string text)
+    {
+        if (_diagLogged++ >= 8)
+            return;
+
+        Console.WriteLine($"[SsMod] examine damage: {text}");
     }
 
     private static string Num(float value) => value.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
