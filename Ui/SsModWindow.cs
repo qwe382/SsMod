@@ -154,6 +154,10 @@ public sealed class SsModWindow : DefaultWindow
         noEffects.OnToggled += args => NoEffects.Toggle(args.Pressed);
         box.AddChild(noEffects);
 
+        var throughWalls = ThroughWalls.BuildCheckBox();
+        throughWalls.OnToggled += args => ThroughWalls.Toggle(args.Pressed);
+        box.AddChild(throughWalls);
+
         // Предикт взаимодействий: клик вне радиуса ждёт цель, круг-таймер.
         box.AddChild(InteractQueue.BuildControls());
 

@@ -55,6 +55,9 @@ public static class ModEntry
             // версиях клиента, поэтому ищем и патчим рефлексией, вне PatchAll.
             Fnc.NoEffects.PatchVisionOverlays(harmony);
 
+            // ПКМ-меню и осмотр за стенами — тоже рефлексией по той же причине.
+            Fnc.ThroughWalls.Patch(harmony);
+
             // Safety net: if the marsey loader routed here directly (not via MarseyEntry),
             // hide the assembly now that patching is done. Idempotent.
             Sedition.hideDelegate?.Invoke(typeof(ModEntry).Assembly);
