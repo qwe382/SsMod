@@ -162,15 +162,18 @@ public static class NoEffects
     }
 
     // Экранный эффект зрения: имя содержит «Vision» и кончается на Overlay.
-    // Свои оверлеи мода (MelBotOverlay, InteractQueueOverlay и т.д.) сюда не
-    // попадают, а лишний матч при включённом твике просто не рисуется.
+    // Отдельно — RetroMonitorOverlay: CRT/VHS-экран IPC (КПБ) на фронтире,
+    // включается, когда играешь за IPC. Свои оверлеи мода (MelBotOverlay,
+    // InteractQueueOverlay и т.д.) сюда не попадают, а лишний матч при
+    // включённом твике просто не рисуется.
     internal static bool IsVisionOverlay(Type type, Type? overlayType)
     {
         if (overlayType is not null && !overlayType.IsAssignableFrom(type))
             return false;
 
         var name = type.Name;
-        return name.EndsWith("Overlay") && name.Contains("Vision");
+        return name.EndsWith("Overlay")
+               && (name.Contains("Vision") || name.Contains("RetroMonitor"));
     }
 
     private static bool VisionDrawPrefix() => !Enabled;
