@@ -4,6 +4,7 @@ using System.Text;
 using Content.Client.Examine;
 using Content.Shared.Botany.Components;
 using Content.Shared.Chemistry.Reagent;
+using Content.Shared.FixedPoint;
 using HarmonyLib;
 using Robust.Client.UserInterface;
 using Robust.Client.UserInterface.Controls;
@@ -64,7 +65,13 @@ public static class BotanyRead
         if (holder != null)
         {
             lines.Add($"Возраст: {holder.Age} • Здоровье: {N(holder.Health)}");
-            lines.Add($"Мутации: {N(holder.MutationLevel)}/{N(holder.MaxMutationLevel)} (шанс ×{N(holder.MutationMod)}) • Мод. урожая ×{holder.YieldMod}");
+
+            // fish 340: поля MutationLevel нет — пишем то, что знаем.
+            var mutation = HolderField(holder, "MutationLevel");
+            if (mutation.HasValue)
+                lines.Add($"Мутации: {N(mutation.Value)}/{N(holder.MaxMutationLevel)} (шанс ×{N(holder.MutationMod)}) • Мод. урожая ×{holder.YieldMod}");
+            else
+                lines.Add($"Мод. урожая ×{holder.YieldMod}");
 
             var flags = new List<string>();
             if (holder.Dead)
@@ -165,6 +172,22 @@ public static class BotanyRead
     private static string N(float value)
     {
         return value.ToString("0.##", CultureInfo.InvariantCulture);
+    }
+
+    // Поле PlantHolderComponent, которого может не быть на другой сборке
+    // (fish 340 убрал MutationLevel). null — поля нет.
+    private static float? HolderField(object holder, string name)
+    {
+        try
+        {
+            return holder.GetType().GetField(name) is not { } field
+                ? null
+                : (float) (FixedPoint2) (field.GetValue(holder) ?? FixedPoint2.Zero);
+        }
+        catch
+        {
+            return null;
+        }
     }
 }
 

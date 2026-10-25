@@ -5,7 +5,6 @@ using Content.Client.Drugs;
 using Content.Client.Drunk;
 using Content.Client.Eye.Blinding;
 using Content.Client.Flash;
-using Content.Client.UserInterface.Systems.DamageOverlays.Overlays;
 using HarmonyLib;
 using Robust.Client.UserInterface.Controls;
 
@@ -105,6 +104,37 @@ public static class NoEffects
             }
         }
 
+        // Потеря крови, удушье, критическое состояние, смерть — DamageOverlay.
+        // Атрибутом не патчим: на fish 340 тип переехал в другой неймспейс,
+        // класс патча с прямой ссылкой не загружался и молча выпадал из PatchAll.
+        var damageType = Compat.FindType("Content.Client.UserInterface.Systems.DamageOverlays.Overlays.DamageOverlay")
+                         ?? Compat.FindType("Content.Client.DamageOverlay.DamageOverlay");
+        if (damageType is not null)
+        {
+            MethodInfo? damageDraw = null;
+            foreach (var m in damageType.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (m.Name == "Draw" && m.DeclaringType == damageType)
+                {
+                    damageDraw = m;
+                    break;
+                }
+            }
+
+            if (damageDraw is not null)
+            {
+                try
+                {
+                    harmony.Patch(damageDraw, prefix: prefix);
+                    patched++;
+                }
+                catch (Exception e)
+                {
+                    Console.Error.WriteLine($"[SsMod] no effects: {damageType.FullName}: {e.Message}");
+                }
+            }
+        }
+
         // Страховка: пока твик включён, vision-оверлеи вообще не добавляются в
         // менеджер. Ловит форки, где Draw живёт в базовом классе с нейтральным
         // именем, и случаи, когда оверлей добавили до наложения патча.
@@ -158,12 +188,9 @@ internal static class NoEffectsDrunkPatch
     private static bool Prefix() => !NoEffects.Enabled;
 }
 
-// Потеря крови, удушье, критическое состояние, смерть.
-[HarmonyPatch(typeof(DamageOverlay), "Draw")]
-internal static class NoEffectsDamagePatch
-{
-    private static bool Prefix() => !NoEffects.Enabled;
-}
+// Потеря крови, удушье, критическое состояние, смерть — DamageOverlay
+// патчится рефлексией в PatchVisionOverlays: тип переехал на fish 340,
+// прямая ссылка роняла загрузку класса патча.
 
 // Слепота.
 [HarmonyPatch(typeof(BlindOverlay), "Draw")]

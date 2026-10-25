@@ -49,7 +49,7 @@ public static class QuickFlush
 
         var ent = IoCManager.Resolve<IEntityManager>();
         if (!ent.TryGetComponent(dragged, out MobStateComponent? mobState) ||
-            mobState.CurrentState != MobState.Alive ||
+            Compat.GetMobState(mobState) != MobState.Alive ||
             !ent.HasComponent<DisposalUnitComponent>(target))
         {
             return;

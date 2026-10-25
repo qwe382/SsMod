@@ -1,5 +1,4 @@
 using System.Numerics;
-using Content.Client.Movement.Systems;
 using HarmonyLib;
 using Robust.Client.UserInterface.Controls;
 using Robust.Shared.GameObjects;
@@ -29,9 +28,11 @@ public static class CameraLock
     }
 }
 
-// Главный патч: SharedEyeSystem.SetOffset — единственная точка, где смещение
-// глаза вообще выставляется (и отдача, и курсор, и прицел идут через неё).
 // Пока блокировка включена — принудительно пишем ноль.
+//
+// Отдельный патч EyeCursorOffsetSystem.OffsetAfterMouse убран: его Harmony-копия
+// ломала JIT на fish 340 (BadImageFormatException каждый тик, 600+ ошибок),
+// а весь сдвиг всё равно проходит через SetOffset, который уже перекрыт выше.
 [HarmonyPatch(typeof(SharedEyeSystem), nameof(SharedEyeSystem.SetOffset))]
 internal static class CameraLockSetOffsetPatch
 {
@@ -52,20 +53,5 @@ internal static class CameraLockSetOffsetPatch
             _logged = true;
             Console.WriteLine("[SsMod] camera lock active (offset forced to 0)");
         }
-    }
-}
-
-// Дополнительно: расчёт сдвига к курсору для оружия в руках. Возвращаем null,
-// чтобы сдвиг вообще не считался.
-[HarmonyPatch(typeof(EyeCursorOffsetSystem), nameof(EyeCursorOffsetSystem.OffsetAfterMouse))]
-internal static class CameraLockCursorPatch
-{
-    private static bool Prefix(ref Vector2? __result)
-    {
-        if (!CameraLock.Enabled)
-            return true;
-
-        __result = null;
-        return false;
     }
 }

@@ -313,7 +313,7 @@ internal static class PredictPoint
         if (Priorities.Get(uid) == Priority.Friend)
             return false;
 
-        if (!ent.TryGetComponent(uid, out MobStateComponent? mob) || mob.CurrentState != MobState.Alive)
+        if (!ent.TryGetComponent(uid, out MobStateComponent? mob) || Compat.GetMobState(mob) != MobState.Alive)
             return false;
 
         if (transform.GetMapId(uid) != map)

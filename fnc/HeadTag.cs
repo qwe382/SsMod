@@ -22,8 +22,10 @@ public sealed class HeadTagOverlay : Overlay
     [Dependency] private readonly IEntityManager _ent = default!;
     [Dependency] private readonly IPlayerManager _player = default!;
 
-    private readonly SharedTransformSystem _transform;
-    private readonly EntityLookupSystem _lookup;
+    // Система берём лениво: оверлей создаётся в PostInit, а на части сборок
+    // (см. GunBotOverlay) IEntityManager.System<T>() там падает с NRE.
+    private SharedTransformSystem? _transformCache;
+    private SharedTransformSystem Transform => _transformCache ??= _ent.System<SharedTransformSystem>();
 
     public override OverlaySpace Space => OverlaySpace.WorldSpace;
 
@@ -33,8 +35,6 @@ public sealed class HeadTagOverlay : Overlay
     public HeadTagOverlay()
     {
         IoCManager.InjectDependencies(this);
-        _transform = _ent.System<SharedTransformSystem>();
-        _lookup = _ent.System<EntityLookupSystem>();
     }
 
     protected override void Draw(in OverlayDrawArgs args)
@@ -44,7 +44,7 @@ public sealed class HeadTagOverlay : Overlay
             return;
 
         // мировая позиция головы
-        var world = _transform.GetWorldPosition(player.Value);
+        var world = Transform.GetWorldPosition(player.Value);
         var top = world + new Vector2(0f, 0.85f);
 
         // конвертим в экранные пиксели вьюпорта: используем ручной скейл зума

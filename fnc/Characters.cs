@@ -85,7 +85,7 @@ public static class Characters
             if (isSelf && !CharacterSettings.ShowSelf)
                 continue;
 
-            if (CharacterSettings.AliveOnly && mob.CurrentState != MobState.Alive)
+            if (CharacterSettings.AliveOnly && Compat.GetMobState(mob) != MobState.Alive)
                 continue;
 
             if (!ent.HasComponent<TransformComponent>(uid))
@@ -99,12 +99,15 @@ public static class Characters
             if (CharacterSettings.MaxDistance > 0f && distance > CharacterSettings.MaxDistance)
                 continue;
 
+            // fish 340: CurrentState — поле, читаем через Compat.
+            var mobState = Compat.GetMobState(mob) ?? MobState.Dead;
+
             var info = new CharacterInfo
             {
                 Uid = uid,
                 Name = meta.EntityName,
-                State = mob.CurrentState,
-                StateText = Vitals.StateText(mob.CurrentState),
+                State = mobState,
+                StateText = Vitals.StateText(mobState),
                 Priority = Priorities.Get(uid),
                 IsPlayer = ent.HasComponent<ActorComponent>(uid),
                 Self = isSelf,

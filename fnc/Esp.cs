@@ -179,7 +179,7 @@ public sealed class EspOverlay : Overlay
             if (!_ent.TryGetComponent(uid, out MetaDataComponent? meta) || meta.Deleted)
                 continue;
 
-            if (EspSettings.AliveOnly && mob.CurrentState != MobState.Alive)
+            if (EspSettings.AliveOnly && Compat.GetMobState(mob) != MobState.Alive)
                 continue;
 
             if (EspSettings.PlayersOnly && !_ent.HasComponent<ActorComponent>(uid))
@@ -213,7 +213,7 @@ public sealed class EspOverlay : Overlay
 
     private static EspCategory CategoryOf(EntityUid uid, MobStateComponent mob)
     {
-        if (mob.CurrentState == MobState.Dead)
+        if (Compat.GetMobState(mob) == MobState.Dead)
             return EspSettings.Dead;
 
         return Priorities.Get(uid) switch

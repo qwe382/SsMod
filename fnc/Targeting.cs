@@ -32,7 +32,7 @@ internal static class Targeting
         var query = ent.AllEntityQueryEnumerator<MobStateComponent, MetaDataComponent>();
         while (query.MoveNext(out var uid, out var mobState, out _))
         {
-            if (mobState.CurrentState == MobState.Alive)
+            if (Compat.GetMobState(mobState) == MobState.Alive)
                 Living.Add(uid);
         }
 

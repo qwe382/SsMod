@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Text;
 using Content.Client.Gameplay;
 using Content.Shared.FixedPoint;
+using Content.Shared.Mobs;
 using Robust.Client.Graphics;
 using Robust.Client.UserInterface;
 using Robust.Client.UserInterface.Controls;
@@ -25,6 +26,32 @@ namespace SsMod.Fnc;
 //   * или ищем нужное через reflection по имени.
 internal static class Compat
 {
+    // -------------------------------------------------------------------- мобы
+
+    private static bool _mobStateResolved;
+    private static MemberInfo? _mobStateMember;
+
+    // Состояние моба. В 276/290 CurrentState — свойство, в fish 340 — поле:
+    // прямой доступ компилируется в get_CurrentState и на чужой версии падает
+    // с MissingMethodException (у ESP и мелбота это ломало каждый кадр).
+    public static MobState? GetMobState(object mobStateComponent)
+    {
+        if (!_mobStateResolved)
+        {
+            _mobStateResolved = true;
+            var type = mobStateComponent.GetType();
+            _mobStateMember = (MemberInfo?) type.GetField("CurrentState")
+                              ?? type.GetProperty("CurrentState");
+        }
+
+        return _mobStateMember switch
+        {
+            FieldInfo field => field.GetValue(mobStateComponent) as MobState?,
+            PropertyInfo property => property.GetValue(mobStateComponent) as MobState?,
+            _ => null,
+        };
+    }
+
     // ------------------------------------------------------------------ коробки
 
     // В 276 у UIBox2/UIBox2i поля Left/Top/Right/Bottom/TopLeft, в 290 — свойства.
