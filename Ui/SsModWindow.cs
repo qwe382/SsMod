@@ -23,6 +23,7 @@ public sealed class SsModWindow : DefaultWindow
         // Фрейм «Визуалы»: внутри свои вкладки — gun-bot, дуга патронов, трейсы.
         ("Визуалы", Visuals.BuildTab),
         ("Конфиг", Config.BuildTab),
+        ("Оптимизация", Optimize.BuildTab),
         ("Дебаг", BuildDebug),
         ("Твики", BuildTweaks),
     };
