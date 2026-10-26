@@ -13,6 +13,7 @@ using Robust.Shared.Map;
 using Robust.Shared.Maths;
 using Robust.Shared.Prototypes;
 using Robust.Shared.GameObjects;
+using Robust.Shared.Timing;
 using Robust.Client.UserInterface.Controls;
 
 namespace SsMod.Fnc;
@@ -146,6 +147,12 @@ internal static class AutoGrillePatch
         bool altInteract)
     {
         if (!AutoGrille.Enabled || altInteract)
+            return;
+
+        // Клиент прогоняет один клик несколько раз (реплей неподтверждённого
+        // ввода каждый тик) — без проверки заказ стройки уходит повторно и
+        // плодит лишние сообщения/делы. Строим только на первом прогоне.
+        if (!IoCManager.Resolve<IGameTiming>().IsFirstTimePredicted)
             return;
 
         try
