@@ -1,6 +1,7 @@
 using System;
 using System.Numerics;
 using System.Reflection;
+using Content.Client.CombatMode;
 using Content.Client.Construction;
 using Content.Shared.Construction.Prototypes;
 using Content.Shared.Hands.EntitySystems;
@@ -47,12 +48,18 @@ public static class AutoGrille
 
     public static void TryBuild(EntityUid user, EntityCoordinates coordinates, EntityUid? target)
     {
-        if (target is { Valid: true })
-            return; // клик по сущности, не по полу
-
         var ent = IoCManager.Resolve<IEntityManager>();
         var player = IoCManager.Resolve<IPlayerManager>();
         if (player.LocalEntity is not { Valid: true } self || self != user)
+            return;
+
+        // В боевом режиме клик — удар, стройку не запускаем.
+        if (ent.System<CombatModeSystem>().IsInCombatMode(self))
+            return;
+
+        // Клик по призраку стройки игра обрабатывает сама — не дублируем заказ.
+        if (target is { Valid: true } clicked
+            && ent.HasComponent<ConstructionGhostComponent>(clicked))
             return;
 
         // Стержни в активной руке?
@@ -64,21 +71,23 @@ public static class AutoGrille
         if (!proto.TryIndex<ConstructionPrototype>("Grille", out var grille))
             return;
 
-        // Клик может попасть мимо центра клетки — снапим к центру (координаты
-        // локальны гриду, клетка размером 1).
+        // Клик может попасть мимо центра клетки (в т.ч. по предмету на ней) —
+        // снапим к центру (координаты локальны гриду, клетка размером 1).
         var pos = coordinates.Position;
         var snapped = new EntityCoordinates(coordinates.EntityId,
             new Vector2(MathF.Floor(pos.X) + 0.5f, MathF.Floor(pos.Y) + 0.5f));
 
         var construction = ent.System<Content.Client.Construction.ConstructionSystem>();
 
-        // Призрак уже стоит — клик по клетке дозаказывает стройку.
+        // Призрак уже стоит — клик по клетке дозаказывает стройку. Чужой призрак
+        // (другой рецепт на этой клетке) не трогаем.
         foreach (var ghost in ent.EntityQuery<ConstructionGhostComponent>())
         {
             if (ent.GetComponent<TransformComponent>(ghost.Owner).Coordinates != snapped)
                 continue;
 
-            StartConstruction(construction, ghost.Owner);
+            if (ghost.Prototype?.ID == "Grille")
+                StartConstruction(construction, ghost.Owner);
             return;
         }
 
@@ -86,8 +95,8 @@ public static class AutoGrille
             StartConstruction(construction, spawned.Value);
     }
 
-    // Стержни = стек MetalRod. Поле называется StackType (новые версии) или
-    // StackTypeId (276), поэтому читаем рефлексией.
+    // Стержни = стек MetalRod. Член называется StackTypeId и в разных версиях
+    // это то поле (276, fish), то свойство со строкой (290) — читаем рефлексией.
     private static bool _stackResolved;
     private static MemberInfo? _stackMember;
 
@@ -100,16 +109,20 @@ public static class AutoGrille
         {
             _stackResolved = true;
             var type = stack.GetType();
-            _stackMember = (MemberInfo?) type.GetField("StackType")
-                           ?? type.GetField("StackTypeId");
+            _stackMember = (MemberInfo?) type.GetField("StackTypeId")
+                           ?? type.GetProperty("StackTypeId")
+                           ?? (MemberInfo?) type.GetField("StackType")
+                           ?? type.GetProperty("StackType");
         }
 
-        return _stackMember switch
+        var value = _stackMember switch
         {
-            FieldInfo field => field.GetValue(stack)?.ToString() == "MetalRod",
-            PropertyInfo property => property.GetValue(stack)?.ToString() == "MetalRod",
-            _ => false,
+            FieldInfo field => field.GetValue(stack),
+            PropertyInfo property => property.GetValue(stack),
+            _ => null,
         };
+
+        return value?.ToString() == "MetalRod";
     }
 
     // TryStartConstruction различается числом параметров (в 290 добавлен
