@@ -158,6 +158,10 @@ public sealed class SsModWindow : DefaultWindow
         throughWalls.OnToggled += args => ThroughWalls.Toggle(args.Pressed);
         box.AddChild(throughWalls);
 
+        var autoGrille = AutoGrille.BuildCheckBox();
+        autoGrille.OnToggled += args => AutoGrille.Toggle(args.Pressed);
+        box.AddChild(autoGrille);
+
         // Предикт взаимодействий: клик вне радиуса ждёт цель, круг-таймер.
         box.AddChild(InteractQueue.BuildControls());
 

@@ -147,6 +147,7 @@ public static class Config
         Step("блокировка камеры", () => CameraLock.Toggle(true));
         Step("без эффектов", () => NoEffects.Toggle(true));
         Step("через стены", () => ThroughWalls.Toggle(true));
+        Step("авто-решётка", () => AutoGrille.Toggle(true));
         Step("быстрый смыв", () => QuickFlush.Toggle(true));
 
         // ESP включён; категории и полоски в нём уже включены по умолчанию.
