@@ -163,6 +163,10 @@ public sealed class SsModWindow : DefaultWindow
         autoGrille.OnToggled += args => AutoGrille.Toggle(args.Pressed);
         box.AddChild(autoGrille);
 
+        var grenadeTimer = GrenadeTimer.BuildCheckBox();
+        grenadeTimer.OnToggled += args => GrenadeTimer.Toggle(args.Pressed);
+        box.AddChild(grenadeTimer);
+
         // Предикт взаимодействий: клик вне радиуса ждёт цель, круг-таймер.
         box.AddChild(InteractQueue.BuildControls());
 
